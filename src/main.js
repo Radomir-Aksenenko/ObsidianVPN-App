@@ -155,6 +155,10 @@ function splitSummary(p) {
   if (!p) return "Выключено";
   const sites = p.config?.split_sites || p.config?.route_ips || [];
   if (!sites.length) return "Выключено";
+  const mode = p.config?.split_tunnel_mode || "exclude";
+  if (mode === "include") {
+    return `Только VPN: ${sites.length}`;
+  }
   return `Исключений: ${sites.length}`;
 }
 
@@ -1083,7 +1087,30 @@ function renderAddKeyModal() {
 function renderSplitModal() {
   const p = selectedProfile();
   const sites = (p?.config?.split_sites || []).join("\n");
-  const draft = state.splitDraft || sites;
+  const draft = state.splitDraft !== undefined && state.splitDraft !== null && state.modal === "split" ? state.splitDraft : sites;
+  const mode = state.splitModeDraft || p?.config?.split_tunnel_mode || "exclude";
+
+  const isExclude = mode === "exclude";
+  const desc = isExclude
+    ? "Сайты из списка открываются напрямую (весь остальной трафик идет через VPN)"
+    : "Только сайты из списка идут через VPN (весь остальной трафик открывается напрямую)";
+
+  const presetsHtml = isExclude
+    ? `
+      <button class="preset-tag-btn" data-add-preset="gosuslugi">Госуслуги и банки</button>
+      <button class="preset-tag-btn" data-add-preset="ru-media">VK, Яндекс, Кинопоиск</button>
+      <button class="preset-tag-btn" data-add-preset="ru-all">Зона *.ru, *.рф, *.su</button>
+      <button class="preset-tag-btn" data-add-preset="clear" style="color:var(--danger)">Очистить</button>
+    `
+    : `
+      <button class="preset-tag-btn" data-add-preset="blocked">Заблокированные (Instagram, X, etc.)</button>
+      <button class="preset-tag-btn" data-add-preset="ai">AI сервисы (ChatGPT, Claude)</button>
+      <button class="preset-tag-btn" data-add-preset="clear" style="color:var(--danger)">Очистить</button>
+    `;
+
+  const placeholder = isExclude
+    ? "gosuslugi.ru\nsberbank.ru\n*.ru\n192.168.0.0/16"
+    : "instagram.com\ntwitter.com\nx.com\nchatgpt.com";
 
   return `
     <div class="sheet-backdrop ${state.modal === "split" ? "open" : ""}" data-act="close-modal">
@@ -1092,19 +1119,24 @@ function renderSplitModal() {
         <div class="sheet-header-line">
           <div>
             <div class="sheet-title-text">Раздельное туннелирование</div>
-            <div style="font-size:11px; color:var(--text-dim); margin-top:1px;">Сайты из списка открываются напрямую без VPN</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:2px; line-height:1.3;">${desc}</div>
           </div>
         </div>
         <div class="sheet-content-scroll">
-          <div class="preset-tag-row">
-            <button class="preset-tag-btn" data-add-preset="gosuslugi">Госуслуги и банки</button>
-            <button class="preset-tag-btn" data-add-preset="ru-media">VK, Яндекс, Кинопоиск</button>
-            <button class="preset-tag-btn" data-add-preset="ru-all">Зона *.ru</button>
-            <button class="preset-tag-btn" data-add-preset="clear" style="color:var(--danger)">Очистить</button>
+          <div class="split-mode-tabs">
+            <button class="split-mode-tab ${isExclude ? "active" : ""}" data-set-split-mode="exclude">
+              Исключения (Обход VPN)
+            </button>
+            <button class="split-mode-tab ${!isExclude ? "active" : ""}" data-set-split-mode="include">
+              Только выбранное (VPN)
+            </button>
           </div>
-          <div class="input-block">
-            <div class="input-caption">Список доменов (по одному на строку)</div>
-            <textarea id="split-input" class="text-multiline" rows="5" placeholder="gosuslugi.ru&#10;sberbank.ru&#10;kinopoisk.ru">${esc(draft)}</textarea>
+          <div class="preset-tag-row">
+            ${presetsHtml}
+          </div>
+          <div class="input-block" style="margin-top:10px;">
+            <div class="input-caption">Список доменов, масок или подсетей (по одному на строку)</div>
+            <textarea id="split-input" class="text-multiline" rows="6" placeholder="${esc(placeholder)}">${esc(draft)}</textarea>
           </div>
         </div>
         <div class="sheet-footer-actions">
@@ -1444,6 +1476,18 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
+  // Переключение режима раздельного туннелирования
+  const modeBtn = e.target.closest("[data-set-split-mode]");
+  if (modeBtn) {
+    const area = document.getElementById("split-input");
+    if (area) {
+      state.splitDraft = area.value;
+    }
+    state.splitModeDraft = modeBtn.dataset.setSplitMode;
+    render();
+    return;
+  }
+
   // Пресеты раздельного туннелирования
   const presetBtn = e.target.closest("[data-add-preset]");
   if (presetBtn) {
@@ -1455,6 +1499,8 @@ document.addEventListener("click", async (e) => {
       gosuslugi: ["gosuslugi.ru", "sberbank.ru", "tbank.ru", "vtb.ru", "nalog.ru", "mos.ru"],
       "ru-media": ["vk.com", "yandex.ru", "ya.ru", "kinopoisk.ru", "dzen.ru", "mail.ru", "rutube.ru"],
       "ru-all": ["*.ru", "*.рф", "*.su"],
+      blocked: ["instagram.com", "facebook.com", "twitter.com", "x.com", "rutracker.org", "flibusta.is", "linkedin.com"],
+      ai: ["chatgpt.com", "openai.com", "claude.ai", "anthropic.com", "notion.so"],
     };
 
     if (preset === "clear") {
@@ -1529,6 +1575,8 @@ document.addEventListener("click", async (e) => {
   if (act === "close-modal") {
     state.modal = null;
     state.deleteCandidate = null;
+    state.splitDraft = "";
+    state.splitModeDraft = null;
     render();
     return;
   }
@@ -1589,6 +1637,7 @@ document.addEventListener("click", async (e) => {
     const p = selectedProfile();
     state.modal = "split";
     state.splitDraft = (p?.config?.split_sites || []).join("\n");
+    state.splitModeDraft = p?.config?.split_tunnel_mode || "exclude";
     render();
     return;
   }
@@ -1598,10 +1647,11 @@ document.addEventListener("click", async (e) => {
     if (p) {
       const text = document.getElementById("split-input")?.value || "";
       const sites = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      const mode = state.splitModeDraft || p?.config?.split_tunnel_mode || "exclude";
       try {
         state.data = await invoke("set_split_tunnel", {
           id: p.id,
-          mode: "exclude",
+          mode,
           sites,
         });
         showToast("Настройки туннелирования сохранены");
@@ -1610,6 +1660,8 @@ document.addEventListener("click", async (e) => {
       }
     }
     state.modal = null;
+    state.splitDraft = "";
+    state.splitModeDraft = null;
     render();
     return;
   }
