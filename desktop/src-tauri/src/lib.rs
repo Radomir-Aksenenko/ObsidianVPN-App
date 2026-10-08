@@ -39,7 +39,7 @@ fn state_dto(app: &AppHandle) -> AppStateDto {
         issued: storage::load_issued(),
         settings: storage::load_settings(),
         device_id: storage::short_device_id(),
-        version: "0.1.0".into(),
+        version: installer::BUNDLED_VERSION.into(),
         vpn: app.state::<Vpn>().snapshot(),
     }
 }
@@ -110,7 +110,7 @@ fn add_key(app: AppHandle, key: String) -> Result<AppStateDto, String> {
         keyserver_admin_token: String::new(),
         code,
         flag,
-        server_version: "0.1.0".into(),
+        server_version: String::new(),
         needs_update: false,
     };
     let _ = storage::write_client_config(&mut profile);
@@ -286,7 +286,7 @@ async fn start_update(app: AppHandle, req: DeployReq) -> Result<AppStateDto, Str
             if !saved_auth.is_empty() {
                 p.ssh_auth = saved_auth.clone();
             }
-            p.server_version = "0.1.0".into();
+            p.server_version = installer::BUNDLED_VERSION.into();
             p.needs_update = false;
 
             // Re-encode key with updated SNI and auth key
@@ -394,7 +394,7 @@ async fn start_deploy(app: AppHandle, req: DeployReq) -> Result<AppStateDto, Str
         keyserver_admin_token: result.admin_token.clone(),
         code: code.clone(),
         flag,
-        server_version: "0.1.0".into(),
+        server_version: installer::BUNDLED_VERSION.into(),
         needs_update: false,
     };
     let _ = storage::write_client_config(&mut profile);
@@ -585,7 +585,6 @@ async fn reset_server(app: AppHandle, server_id: String) -> Result<AppStateDto, 
                 .insert("reality_sni".into(), json!(result.reality_sni.clone()));
             p.config
                 .insert("sni".into(), json!(result.reality_sni.clone()));
-            p.server_version = "0.1.0".into();
             p.needs_update = false;
 
             // Generate fresh client identity

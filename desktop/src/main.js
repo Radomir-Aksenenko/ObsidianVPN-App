@@ -74,7 +74,7 @@ const state = {
     issued: [],
     settings: { autostart: false, minimize_to_tray: true, kill_switch: false, last_profile_id: "" },
     device_id: "----",
-    version: "0.1.0",
+    version: "",
     vpn: {
       status: initialVpnStatus,
       error: null,
@@ -450,9 +450,10 @@ function renderServerManageView() {
   const isLoadingCheck = state.manageLoading === "check";
   const isLoadingCred = state.manageLoading === "save-cred";
 
-  const serverVer = p.server_version || "0.1.0";
-  const clientVer = state.data.version || "0.1.0";
-  const needsUpdate = Boolean(p.needs_update || (p.server_version && p.server_version !== clientVer));
+  const serverVer = p.server_version || "неизвестна";
+  const clientVer = state.data.version || "";
+  // Set by the backend after a semver + binary hash check (see check_remote_version).
+  const needsUpdate = Boolean(p.needs_update);
 
   // Предупреждающий баннер, если реквизиты не заданы
   const warningBanner = (!hasPassword && !hasKey)

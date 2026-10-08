@@ -373,6 +373,9 @@ async fn probe_ipv6_connectivity(s: &Session) -> bool {
 
 //// Fallback port used when 443 is taken by another service on the host.
 const ALT_PORT: &str = "8443";
+/// Version of this desktop build. The server core is compared against it.
+pub const BUNDLED_VERSION: &str = env!("CARGO_PKG_VERSION");
+const VERSION_FILE: &str = "/opt/obsidian/version.txt";
 
 /// What the update writes to the server config. Decided before anything is uploaded.
 struct UpdatePlan {
@@ -536,6 +539,14 @@ async fn apply_update(
             .await?;
         return Err(format!("Контейнер VPN не запустился после обновления.\n{logs}"));
     }
+
+    // Only a successful update records the new version.
+    let bin_hash = hex::encode(Sha256::digest(&bin_bytes));
+    let ver_str = format!("{BUNDLED_VERSION}\n{bin_hash}\n");
+    if let Err(e) = s.upload_bytes(ver_str.as_bytes(), VERSION_FILE).await {
+        s.log(&format!("version.txt was not written: {e}"));
+    }
+
     let logs = s
         .run(&format!("docker logs --tail 20 {VPN_CONTAINER} 2>&1"), false)
         .await?;
@@ -656,8 +667,8 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
     s.upload_bytes(&bin_bytes, SERVER_BIN).await?;
     s.run(&format!("chmod +x {SERVER_BIN}"), true).await?;
     let bin_hash = hex::encode(Sha256::digest(&bin_bytes));
-    let ver_str = format!("0.1.0\n{bin_hash}\n");
-    let _ = s.upload_bytes(ver_str.as_bytes(), "/opt/obsidian/version.txt").await;
+    let ver_str = format!("{BUNDLED_VERSION}\n{bin_hash}\n");
+    let _ = s.upload_bytes(ver_str.as_bytes(), VERSION_FILE).await;
     s.log(&format!("REALITY mask {sni}:443, listen TCP {tcp_port}, UDP {udp_port}"));
 
     let iface = s
@@ -1126,20 +1137,48 @@ pub struct VersionCheckResult {
     pub message: String,
 }
 
+/// Parses "1.2.3". A leading "v" and any "-pre" or "+build" suffix are ignored.
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let core = v.trim().trim_start_matches('v');
+    let core = core.split(|c| c == '-' || c == '+').next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// The server core is outdated when its binary differs from the bundled one and its version
+/// is older than this build. A binary that matches the bundle is never outdated. An equal
+/// version with a different binary is outdated. A newer server version is never downgraded.
+fn core_needs_update(remote_ver: Option<&str>, remote_hash: &str, local_hash: &str) -> bool {
+    if !remote_hash.is_empty() && remote_hash == local_hash {
+        return false;
+    }
+    let hash_differs = !remote_hash.is_empty();
+    let local = parse_version(BUNDLED_VERSION).unwrap_or((0, 0, 0));
+    match remote_ver.and_then(parse_version) {
+        Some(remote) if remote < local => true,
+        Some(remote) if remote == local => hash_differs,
+        Some(_) => false,
+        None => hash_differs,
+    }
+}
+
 pub async fn check_remote_version(
     app: AppHandle,
     req: &DeployReq,
 ) -> Result<VersionCheckResult, String> {
     let s = ssh_open(app.clone(), req).await?;
     let ver_file = s
-        .run("cat /opt/obsidian/version.txt 2>/dev/null || echo MISSING", false)
+        .run(&format!("cat {VERSION_FILE} 2>/dev/null || echo MISSING"), false)
         .await?;
 
     let (server_bin, _) = runtime_files(&app)?;
     let local_bin_bytes = std::fs::read(&server_bin).map_err(|e| e.to_string())?;
     let local_hash = hex::encode(Sha256::digest(&local_bin_bytes));
 
-    if ver_file.contains("MISSING") {
+    let (remote_ver, remote_hash) = if ver_file.contains("MISSING") {
         let bin_exists = s
             .run(
                 "test -f /opt/obsidian/obsidian-server && echo EXISTS || echo NO",
@@ -1157,40 +1196,133 @@ pub async fn check_remote_version(
             .await?
             .trim()
             .to_string();
-        if remote_hash == local_hash {
-            Ok(VersionCheckResult {
-                version: "0.1.0".to_string(),
-                needs_update: false,
-                message: "Версия ядра актуальна (совпадает с клиентом)".to_string(),
-            })
-        } else {
-            Ok(VersionCheckResult {
-                version: "ранняя сборка".to_string(),
-                needs_update: true,
-                message: "Обнаружена устаревшая версия ядра сервера. Рекомендуется обновление.".to_string(),
-            })
-        }
+        (None, remote_hash)
     } else {
         let lines: Vec<&str> = ver_file
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .collect();
-        let remote_ver = lines.first().copied().unwrap_or("0.1.0").to_string();
+        let remote_ver = lines.first().map(|v| v.to_string());
         let remote_hash = lines.get(1).copied().unwrap_or("").to_string();
+        (remote_ver, remote_hash)
+    };
 
-        if remote_hash == local_hash && !local_hash.is_empty() {
-            Ok(VersionCheckResult {
-                version: remote_ver,
-                needs_update: false,
-                message: "Установлена актуальная версия ядра".to_string(),
-            })
-        } else {
-            Ok(VersionCheckResult {
-                version: remote_ver,
-                needs_update: true,
-                message: "Доступна новая версия ядра сервера".to_string(),
-            })
-        }
+    let same_binary = !remote_hash.is_empty() && remote_hash == local_hash;
+    let needs_update = core_needs_update(remote_ver.as_deref(), &remote_hash, &local_hash);
+    let version = match remote_ver {
+        Some(v) => v,
+        None if same_binary => BUNDLED_VERSION.to_string(),
+        None => "ранняя сборка".to_string(),
+    };
+    let message = if needs_update {
+        format!("Доступно обновление ядра до {BUNDLED_VERSION} (сейчас на сервере: {version}).")
+    } else {
+        format!("Установлена актуальная версия ядра {version}.")
+    };
+
+    Ok(VersionCheckResult {
+        version,
+        needs_update,
+        message,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NGINX_TCP_443: &str = r#"LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=83216,fd=5),("nginx",pid=69121,fd=5))"#;
+    const OBSIDIAN_UDP_443: &str = r#"UNCONN 0 0 0.0.0.0:443 0.0.0.0:* users:(("obsidian-server",pid=68904,fd=9))"#;
+    const OBSIDIAN_TCP_8443: &str = r#"LISTEN 0 4096 *:8443 *:* users:(("obsidian-server",pid=68904,fd=7))"#;
+
+    #[test]
+    fn foreign_tcp_443_is_reported_with_its_process() {
+        assert_eq!(
+            parse_port_owner(NGINX_TCP_443, "443", &[]),
+            PortOwner::Foreign("nginx".into())
+        );
+    }
+
+    #[test]
+    fn obsidian_udp_443_is_ours() {
+        assert_eq!(parse_port_owner(OBSIDIAN_UDP_443, "443", &[]), PortOwner::Ours);
+    }
+
+    #[test]
+    fn other_port_in_the_listing_is_free() {
+        assert_eq!(parse_port_owner(NGINX_TCP_443, "8443", &[]), PortOwner::Free);
+    }
+
+    #[test]
+    fn port_match_is_exact() {
+        assert_eq!(parse_port_owner(NGINX_TCP_443, "4430", &[]), PortOwner::Free);
+        assert_eq!(parse_port_owner(NGINX_TCP_443, "44", &[]), PortOwner::Free);
+    }
+
+    #[test]
+    fn ipv6_wildcard_and_star_addresses_match() {
+        let v6 = r#"LISTEN 0 511 [::]:443 [::]:* users:(("nginx",pid=1,fd=6))"#;
+        assert_eq!(parse_port_owner(v6, "443", &[]), PortOwner::Foreign("nginx".into()));
+        assert_eq!(parse_port_owner(OBSIDIAN_TCP_8443, "8443", &[]), PortOwner::Ours);
+    }
+
+    #[test]
+    fn process_of_vpn_container_counts_as_ours() {
+        let line = r#"UNCONN 0 0 0.0.0.0:443 0.0.0.0:* users:(("xray",pid=4242,fd=3))"#;
+        assert_eq!(parse_port_owner(line, "443", &[]), PortOwner::Foreign("xray".into()));
+        assert_eq!(
+            parse_port_owner(line, "443", &["4242".to_string()]),
+            PortOwner::Ours
+        );
+    }
+
+    #[test]
+    fn socket_without_process_info_is_foreign() {
+        let line = "LISTEN 0 128 0.0.0.0:443 0.0.0.0:*";
+        assert!(matches!(parse_port_owner(line, "443", &[]), PortOwner::Foreign(_)));
+    }
+
+    #[test]
+    fn empty_listing_means_free() {
+        assert_eq!(parse_port_owner("", "443", &[]), PortOwner::Free);
+    }
+
+    #[test]
+    fn parses_versions_loosely() {
+        assert_eq!(parse_version("1.1.1"), Some((1, 1, 1)));
+        assert_eq!(parse_version("v1.2"), Some((1, 2, 0)));
+        assert_eq!(parse_version("0.1.0-beta.2"), Some((0, 1, 0)));
+        assert_eq!(parse_version("ранняя сборка"), None);
+        assert!(parse_version("1.10.0") > parse_version("1.9.9"));
+    }
+
+    #[test]
+    fn same_binary_is_never_outdated() {
+        assert!(!core_needs_update(Some("0.1.0"), "abc", "abc"));
+        assert!(!core_needs_update(None, "abc", "abc"));
+    }
+
+    #[test]
+    fn older_server_version_is_outdated() {
+        assert!(core_needs_update(Some("0.1.0"), "abc", "def"));
+        assert!(core_needs_update(Some("0.0.1"), "", "def"));
+    }
+
+    #[test]
+    fn equal_version_is_outdated_only_when_hash_differs() {
+        assert!(core_needs_update(Some(BUNDLED_VERSION), "abc", "def"));
+        assert!(!core_needs_update(Some(BUNDLED_VERSION), "", "def"));
+    }
+
+    #[test]
+    fn newer_server_is_not_downgraded() {
+        assert!(!core_needs_update(Some("99.0.0"), "abc", "def"));
+    }
+
+    #[test]
+    fn unknown_version_depends_on_hash() {
+        assert!(core_needs_update(None, "abc", "def"));
+        assert!(!core_needs_update(None, "", "def"));
     }
 }

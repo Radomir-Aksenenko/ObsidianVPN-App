@@ -61,7 +61,8 @@ fn default_ssh_auth() -> String {
     "password".into()
 }
 fn default_server_version() -> String {
-    "0.1.0".into()
+    // Unknown until the server is checked over SSH.
+    String::new()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
