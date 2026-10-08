@@ -1,10 +1,12 @@
 package com.obsidian.vpn
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -48,7 +50,20 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "currentStatus" -> result.success(VpnBridge.currentStatus())
+            "openSystemVpnSettings" -> openSystemVpnSettings(result)
             else -> result.notImplemented()
+        }
+    }
+
+    // ---- system VPN settings: the user enables "always-on" and "block without VPN" there ----
+
+    private fun openSystemVpnSettings(result: MethodChannel.Result) {
+        val intent = Intent(Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+            result.success(null)
+        } catch (e: ActivityNotFoundException) {
+            result.error("settings_unavailable", e.message ?: "no VPN settings activity", null)
         }
     }
 

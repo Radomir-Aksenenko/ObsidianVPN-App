@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/widgets.dart';
+import 'package:obsidian_vpn/core/codec/client_config.dart';
 import 'package:obsidian_vpn/core/codec/obsidian_key.dart';
 import 'package:obsidian_vpn/core/models/profile.dart';
 import 'package:obsidian_vpn/core/models/split_tunnel.dart';
@@ -38,8 +39,8 @@ class AppStateException implements Exception {
 /// Optional backend capability: enforce the kill switch natively.
 ///
 /// [AppState.connect] calls [setKillSwitch] before connecting, but only when
-/// the backend implements this interface. No backend implements it yet: the
-/// native channel protocol has no kill switch field.
+/// the backend implements this interface. [ChannelVpnBackend] implements it and
+/// sends the flag as `killSwitch` with `connect`; the desktop backend does not.
 abstract interface class KillSwitchCapable {
   /// Turns the kill switch on or off for the next connection.
   Future<void> setKillSwitch(bool enabled);
@@ -214,6 +215,13 @@ class AppState extends ChangeNotifier {
 
   /// Last [kAppLogCapacity] log lines, oldest first. Read-only view.
   UnmodifiableListView<String> get logs => UnmodifiableListView(_logLines);
+
+  /// Removes all log lines. The log keeps filling from new events.
+  void clearLogs() {
+    if (_logLines.isEmpty) return;
+    _logLines.clear();
+    _notify();
+  }
 
   /// Last TCP ping per profile id, in milliseconds. A null value means the
   /// server did not answer. A missing key means no measurement yet. Read-only view.
@@ -520,6 +528,70 @@ class AppState extends ChangeNotifier {
   Future<void> removeIssuedKey(String id) async {
     await _store.removeIssued(id);
     _notify();
+  }
+
+  /// Returns the owner key (OBSDN) of a VPS profile, or null.
+  Future<String?> ownerKey(String profileId) async {
+    final value = await _store.secrets.read(SecretKeys.profile(profileId, SecretKeys.rawKey));
+    return _nonEmptyOrNull(value);
+  }
+
+  /// Updates a VPS profile after a manage operation. Null arguments keep the current value.
+  ///
+  /// [creds] replaces the SSH host, port and user, and rewrites the SSH secrets (a null
+  /// secret removes the stored one). [ownerKey] with [ownerConfig] replaces the owner key
+  /// (after SNI, IPv6 or reset changes). [adminToken] replaces the keyserver token.
+  /// [hostKey] pins a new SSH host key fingerprint. Returns the saved profile.
+  Future<ServerProfile> updateVpsProfile(
+    String profileId, {
+    VpsCredentials? creds,
+    String? hostKey,
+    String? serverVersion,
+    bool? needsUpdate,
+    String? ownerKey,
+    ClientConfig? ownerConfig,
+    String? adminToken,
+  }) async {
+    final current = profileById(profileId);
+    if (current == null || current.vps == null) {
+      throw const AppStateException('Профиль VPS не найден.');
+    }
+    final secrets = _store.secrets;
+    if (creds != null) {
+      await _writeOrDelete(profileId, SecretKeys.vpsPassword, creds.password);
+      await _writeOrDelete(profileId, SecretKeys.vpsPrivateKeyPem, creds.privateKeyPem);
+      await _writeOrDelete(profileId, SecretKeys.vpsPassphrase, creds.passphrase);
+    }
+    if (ownerKey != null) {
+      await secrets.write(SecretKeys.profile(profileId, SecretKeys.rawKey), ownerKey);
+    }
+    if (adminToken != null) {
+      await secrets.write(SecretKeys.profile(profileId, SecretKeys.adminToken), adminToken);
+    }
+    final owner = ownerConfig;
+    final profile = ServerProfile(
+      id: current.id,
+      name: current.name,
+      countryCode: current.countryCode,
+      host: owner == null || owner.serverHost.isEmpty ? current.host : owner.serverHost,
+      port: owner == null ? current.port : (int.tryParse(owner.serverPort) ?? current.port),
+      serverPublicKey: owner == null
+          ? current.serverPublicKey
+          : owner.serverPublicKey.toLowerCase(),
+      source: current.source,
+      createdAt: current.createdAt,
+      split: current.split,
+      isFavorite: current.isFavorite,
+      vps: creds == null
+          ? current.vps
+          : VpsCredentials(host: creds.host, port: creds.port, user: creds.user),
+      vpsHostKey: hostKey ?? current.vpsHostKey,
+      serverVersion: serverVersion ?? current.serverVersion,
+      needsUpdate: needsUpdate ?? current.needsUpdate,
+    );
+    await _store.putProfile(profile);
+    _notify();
+    return profile;
   }
 
   @override

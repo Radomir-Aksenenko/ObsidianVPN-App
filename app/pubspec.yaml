@@ -102,6 +102,7 @@ flutter:
   # see https://flutter.dev/to/font-from-package
   assets:
     - assets/bin/
+    - assets/tray/
   fonts:
     - family: Manrope
       fonts:

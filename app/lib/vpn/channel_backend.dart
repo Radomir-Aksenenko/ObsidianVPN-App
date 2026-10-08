@@ -7,12 +7,34 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../state/app_state.dart' show KillSwitchCapable;
 import 'vpn_backend.dart';
 
 const String vpnMethodChannelName = 'obsidian/vpn';
 const String vpnEventChannelName = 'obsidian/vpn/events';
 
-class ChannelVpnBackend implements VpnBackend {
+/// Opens the Android system VPN settings page (`Settings.ACTION_VPN_SETTINGS`).
+/// Used by the Settings screen, where the app cannot enforce a kill switch itself.
+/// Throws [VpnBackendException] when the page cannot be opened.
+Future<void> openSystemVpnSettings({MethodChannel? channel}) async {
+  final method = channel ?? const MethodChannel(vpnMethodChannelName);
+  try {
+    await method.invokeMethod<void>('openSystemVpnSettings');
+  } on PlatformException catch (e) {
+    throw VpnBackendException(
+      ChannelVpnBackend._russianMessage(
+        e.code,
+        'Не удалось открыть настройки VPN. Откройте их вручную в настройках Android.',
+      ),
+    );
+  } on MissingPluginException {
+    throw const VpnBackendException(
+      'VPN недоступен: нативный канал не подключен.',
+    );
+  }
+}
+
+class ChannelVpnBackend implements VpnBackend, KillSwitchCapable {
   ChannelVpnBackend({MethodChannel? methodChannel, EventChannel? eventChannel})
     : _method = methodChannel ?? const MethodChannel(vpnMethodChannelName),
       _events = eventChannel ?? const EventChannel(vpnEventChannelName) {
@@ -29,10 +51,18 @@ class ChannelVpnBackend implements VpnBackend {
       StreamController<VpnStatus>.broadcast();
   final StreamController<TrafficStats> _statsController =
       StreamController<TrafficStats>.broadcast();
-  final StreamController<String> _logController = StreamController<String>.broadcast();
+  final StreamController<String> _logController =
+      StreamController<String>.broadcast();
 
   StreamSubscription<dynamic>? _eventSubscription;
   bool _statsActive = false;
+  bool _killSwitch = false;
+
+  @override
+  Future<void> setKillSwitch(bool enabled) async {
+    // Sent with the next connect. The native side decides what it enforces (iOS reads it).
+    _killSwitch = enabled;
+  }
 
   @override
   Stream<VpnStatus> get status => _statusController.stream;
@@ -67,6 +97,7 @@ class ChannelVpnBackend implements VpnBackend {
         'name': name,
         'serverHost': serverHost,
         'configJson': configJson,
+        'killSwitch': _killSwitch,
       },
     );
   }
@@ -198,13 +229,16 @@ class ChannelVpnBackend implements VpnBackend {
     } on PlatformException catch (e) {
       throw VpnBackendException(_russianMessage(e.code, fallback));
     } on MissingPluginException {
-      throw const VpnBackendException('VPN недоступен: нативный канал не подключен.');
+      throw const VpnBackendException(
+        'VPN недоступен: нативный канал не подключен.',
+      );
     }
   }
 
   /// Maps the native error codes from MainActivity to user-facing Russian text.
   static String _russianMessage(String code, String fallback) => switch (code) {
-    'not_prepared' => 'Нет разрешения на VPN. Подтвердите его и попробуйте снова.',
+    'not_prepared' =>
+      'Нет разрешения на VPN. Подтвердите его и попробуйте снова.',
     'bad_args' => 'Некорректные данные подключения.',
     'busy' => 'Запрос разрешения уже открыт.',
     'service_error' =>

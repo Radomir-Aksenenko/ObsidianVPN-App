@@ -17,9 +17,11 @@ bool _is(TargetPlatform target, bool Function() real) {
 bool get isDesktop => isWindows || isMacOS || isLinux;
 
 /// True on Android and iOS.
-bool get isMobile =>
-    _is(TargetPlatform.android, () => Platform.isAndroid) ||
-    _is(TargetPlatform.iOS, () => Platform.isIOS);
+bool get isMobile => isAndroid || isIOS;
+
+bool get isAndroid => _is(TargetPlatform.android, () => Platform.isAndroid);
+
+bool get isIOS => _is(TargetPlatform.iOS, () => Platform.isIOS);
 
 /// Windows and Linux draw their own title area. macOS keeps native traffic lights.
 bool get usesCustomTitleBar => isWindows || isLinux;

@@ -85,20 +85,70 @@ void main() {
         'name': 'Home',
         'serverHost': 'vpn.example.com',
         'configJson': '{"server_host":"vpn.example.com"}',
+        'killSwitch': false,
       });
     });
 
-    test('disconnect and applySplit reach the channel with their arguments', () async {
+    test('connect sends the kill switch set before it', () async {
       final backend = await createBackend();
 
-      await backend.applySplit('{"split_tunnel_mode":"exclude"}');
-      await backend.disconnect();
+      await backend.setKillSwitch(true);
+      await backend.connect(
+        profileId: 'p1',
+        name: 'Home',
+        serverHost: 'vpn.example.com',
+        configJson: '{}',
+      );
 
-      expect(callsTo('applySplit').single.arguments, {
-        'configJson': '{"split_tunnel_mode":"exclude"}',
+      expect(callsTo('connect').single.arguments, {
+        'profileId': 'p1',
+        'name': 'Home',
+        'serverHost': 'vpn.example.com',
+        'configJson': '{}',
+        'killSwitch': true,
       });
-      expect(callsTo('disconnect'), hasLength(1));
     });
+
+    test('openSystemVpnSettings calls the native method', () async {
+      await openSystemVpnSettings(channel: _method);
+
+      expect(callsTo('openSystemVpnSettings'), hasLength(1));
+    });
+
+    test(
+      'openSystemVpnSettings maps a native failure to a Russian message',
+      () async {
+        respond = (MethodCall _) async {
+          throw PlatformException(code: 'settings_unavailable');
+        };
+
+        await expectLater(
+          openSystemVpnSettings(channel: _method),
+          throwsA(
+            isA<VpnBackendException>().having(
+              (VpnBackendException e) => e.message,
+              'message',
+              startsWith('Не удалось открыть настройки VPN'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'disconnect and applySplit reach the channel with their arguments',
+      () async {
+        final backend = await createBackend();
+
+        await backend.applySplit('{"split_tunnel_mode":"exclude"}');
+        await backend.disconnect();
+
+        expect(callsTo('applySplit').single.arguments, {
+          'configJson': '{"split_tunnel_mode":"exclude"}',
+        });
+        expect(callsTo('disconnect'), hasLength(1));
+      },
+    );
 
     test('ensurePermission returns the native answer', () async {
       final backend = await createBackend();
@@ -110,67 +160,81 @@ void main() {
       expect(await backend.ensurePermission(), isFalse);
     });
 
-    test('a native error becomes a VpnBackendException with a Russian message', () async {
-      final backend = await createBackend();
-      respond = (MethodCall _) async {
-        throw PlatformException(code: 'not_prepared', message: 'VPN consent has not been granted');
-      };
+    test(
+      'a native error becomes a VpnBackendException with a Russian message',
+      () async {
+        final backend = await createBackend();
+        respond = (MethodCall _) async {
+          throw PlatformException(
+            code: 'not_prepared',
+            message: 'VPN consent has not been granted',
+          );
+        };
 
-      await expectLater(
-        backend.connect(
-          profileId: 'p1',
-          name: 'Home',
-          serverHost: 'vpn.example.com',
-          configJson: '{}',
-        ),
-        throwsA(
-          isA<VpnBackendException>().having(
-            (VpnBackendException e) => e.message,
-            'message',
-            contains('Нет разрешения на VPN'),
+        await expectLater(
+          backend.connect(
+            profileId: 'p1',
+            name: 'Home',
+            serverHost: 'vpn.example.com',
+            configJson: '{}',
           ),
-        ),
-      );
-    });
-
-    test('an unknown native error code falls back to the operation message', () async {
-      final backend = await createBackend();
-      respond = (MethodCall _) async {
-        throw PlatformException(code: 'weird', message: 'boom');
-      };
-
-      await expectLater(
-        backend.disconnect(),
-        throwsA(
-          isA<VpnBackendException>().having(
-            (VpnBackendException e) => e.message,
-            'message',
-            'Не удалось отключить VPN.',
+          throwsA(
+            isA<VpnBackendException>().having(
+              (VpnBackendException e) => e.message,
+              'message',
+              contains('Нет разрешения на VPN'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
-    test('a channel without a native handler is reported as an unavailable VPN', () async {
-      // No mock is registered for these names, so the platform side answers with
-      // MissingPluginException, the same as a build without the native layer.
-      final backend = ChannelVpnBackend(
-        methodChannel: const MethodChannel('obsidian/vpn-without-handler'),
-        eventChannel: const EventChannel('obsidian/vpn-without-handler/events'),
-      );
-      backends.add(backend);
+    test(
+      'an unknown native error code falls back to the operation message',
+      () async {
+        final backend = await createBackend();
+        respond = (MethodCall _) async {
+          throw PlatformException(code: 'weird', message: 'boom');
+        };
 
-      await expectLater(
-        backend.ensurePermission(),
-        throwsA(
-          isA<VpnBackendException>().having(
-            (VpnBackendException e) => e.message,
-            'message',
-            contains('недоступен'),
+        await expectLater(
+          backend.disconnect(),
+          throwsA(
+            isA<VpnBackendException>().having(
+              (VpnBackendException e) => e.message,
+              'message',
+              'Не удалось отключить VPN.',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
+
+    test(
+      'a channel without a native handler is reported as an unavailable VPN',
+      () async {
+        // No mock is registered for these names, so the platform side answers with
+        // MissingPluginException, the same as a build without the native layer.
+        final backend = ChannelVpnBackend(
+          methodChannel: const MethodChannel('obsidian/vpn-without-handler'),
+          eventChannel: const EventChannel(
+            'obsidian/vpn-without-handler/events',
+          ),
+        );
+        backends.add(backend);
+
+        await expectLater(
+          backend.ensurePermission(),
+          throwsA(
+            isA<VpnBackendException>().having(
+              (VpnBackendException e) => e.message,
+              'message',
+              contains('недоступен'),
+            ),
+          ),
+        );
+      },
+    );
 
     test('currentStatus parses the native map', () async {
       final backend = await createBackend();
@@ -204,7 +268,9 @@ void main() {
       backend.statsActive = false;
       await _settle();
 
-      final flags = callsTo('setStatsActive').map((MethodCall call) => call.arguments).toList();
+      final flags = callsTo(
+        'setStatsActive',
+      ).map((MethodCall call) => call.arguments).toList();
       expect(flags, <Object?>[
         {'active': true},
         {'active': false},
@@ -216,21 +282,30 @@ void main() {
       final received = <TrafficStats>[];
       final subscription = backend.stats.listen(received.add);
 
-      emit(<String, Object?>{'type': 'stats', 'rx': 1, 'tx': 2, 'rxBps': 3, 'txBps': 4});
+      emit(<String, Object?>{
+        'type': 'stats',
+        'rx': 1,
+        'tx': 2,
+        'rxBps': 3,
+        'txBps': 4,
+      });
       await _settle();
       expect(received, isEmpty);
 
       backend.statsActive = true;
       await _settle();
-      emit(<String, Object?>{'type': 'stats', 'rx': 10, 'tx': 20, 'rxBps': 30, 'txBps': 40});
+      emit(<String, Object?>{
+        'type': 'stats',
+        'rx': 10,
+        'tx': 20,
+        'rxBps': 30,
+        'txBps': 40,
+      });
       await _settle();
 
-      expect(
-        received,
-        <TrafficStats>[
-          const TrafficStats(rxBytes: 10, txBytes: 20, rxBps: 30, txBps: 40),
-        ],
-      );
+      expect(received, <TrafficStats>[
+        const TrafficStats(rxBytes: 10, txBytes: 20, rxBps: 30, txBps: 40),
+      ]);
       await subscription.cancel();
     });
   });
@@ -253,26 +328,32 @@ void main() {
       expect(status.phase, VpnPhase.connected);
       expect(status.stage, 4);
       expect(status.error, isNull);
-      expect(status.connectedAt, DateTime.fromMillisecondsSinceEpoch(1700000000000));
+      expect(
+        status.connectedAt,
+        DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      );
     });
 
-    test('an error status keeps the Go detail inside a Russian message', () async {
-      final backend = await createBackend();
-      final next = backend.status.first;
+    test(
+      'an error status keeps the Go detail inside a Russian message',
+      () async {
+        final backend = await createBackend();
+        final next = backend.status.first;
 
-      emit(<String, Object?>{
-        'type': 'status',
-        'phase': 'error',
-        'stage': 0,
-        'error': 'init session: handshake refused',
-        'connectedAtMs': null,
-      });
-      await _settle();
+        emit(<String, Object?>{
+          'type': 'status',
+          'phase': 'error',
+          'stage': 0,
+          'error': 'init session: handshake refused',
+          'connectedAtMs': null,
+        });
+        await _settle();
 
-      final status = await next;
-      expect(status.phase, VpnPhase.error);
-      expect(status.error, 'Ошибка VPN: init session: handshake refused');
-    });
+        final status = await next;
+        expect(status.phase, VpnPhase.error);
+        expect(status.error, 'Ошибка VPN: init session: handshake refused');
+      },
+    );
 
     test('unknown phases and out-of-range stages are handled', () async {
       final backend = await createBackend();
@@ -280,7 +361,11 @@ void main() {
       final subscription = backend.status.listen(received.add);
 
       emit(<String, Object?>{'type': 'status', 'phase': 'bogus', 'stage': 1});
-      emit(<String, Object?>{'type': 'status', 'phase': 'connecting', 'stage': 9});
+      emit(<String, Object?>{
+        'type': 'status',
+        'phase': 'connecting',
+        'stage': 9,
+      });
       await _settle();
 
       expect(received, hasLength(1));
@@ -293,7 +378,10 @@ void main() {
       final backend = await createBackend();
       final next = backend.logs.first;
 
-      emit(<String, Object?>{'type': 'log', 'line': 'Connecting to vpn.example.com'});
+      emit(<String, Object?>{
+        'type': 'log',
+        'line': 'Connecting to vpn.example.com',
+      });
       await _settle();
 
       expect(await next, 'Connecting to vpn.example.com');

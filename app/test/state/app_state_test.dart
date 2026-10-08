@@ -302,6 +302,27 @@ void main() {
   });
 
   group('status and logs', () {
+    test('clearLogs empties the log and notifies once', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      backend.emitLog('first');
+      backend.emitLog('second');
+      await settle();
+      var notified = 0;
+      state.addListener(() => notified++);
+
+      state.clearLogs();
+
+      expect(state.logs, isEmpty);
+      expect(notified, 1);
+      state.clearLogs();
+      expect(notified, 1);
+
+      backend.emitLog('after');
+      await settle();
+      expect(state.logs, ['after']);
+    });
+
     test('status and stats propagate; the connected profile follows the phase', () async {
       final backend = FakeVpnBackend();
       final state = await open(backend: backend);

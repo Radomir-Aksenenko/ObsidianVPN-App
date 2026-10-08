@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../desktop/desktop_shell.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/theme.dart';
 
@@ -44,7 +45,7 @@ class DesktopTitleBar extends StatelessWidget {
             icon: Icons.close_rounded,
             tooltip: l10n.windowClose,
             hoverColor: c.danger,
-            onPressed: windowManager.close,
+            onPressed: closeMainWindow,
           ),
         ],
       ),

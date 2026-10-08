@@ -7,12 +7,26 @@ import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../vpn/vpn_backend.dart';
 import '../shell.dart';
+import '../split/split_editor_screen.dart';
 import '../widgets/widgets.dart';
 import 'connect_dial.dart';
 import 'log_sheet.dart';
 import 'server_picker.dart';
 import 'session_timer.dart';
 import 'traffic_format.dart';
+
+/// The dial stays at the same height in every state. Its position depends on these
+/// fixed slots and on the window height, never on the content that changes below it.
+///
+/// Lower block (server row, traffic, split tunnel): reserved at the bottom. The largest
+/// state is connected with the traffic row, about 280 px.
+const double _lowerSlot = 300;
+
+/// Status line under the dial. The error state is the tallest: action, two-line error, logs.
+const double _labelSlot = 112;
+
+/// Below this window height the page scrolls instead. 36 bar + 220 dial + 24 + label + lower + 16.
+const double _fixedLayoutMinHeight = 720;
 
 class _ToggleIntent extends Intent {
   const _ToggleIntent();
@@ -60,6 +74,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _goTo(ShellTab tab) => ShellNav.maybeOf(context)?.goTo(tab);
 
+  /// Opens the split editor for the server the split row shows: the connected one while busy, else the selected one.
+  void _openSplit(AppState state) {
+    final live = state.vpnStatus.phase == VpnPhase.connected || state.isBusy;
+    final profile = live
+        ? (state.connectedProfile ?? state.selectedProfile)
+        : state.selectedProfile;
+    if (profile == null) return;
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SplitEditorScreen(profileId: profile.id),
+      ),
+    );
+  }
+
   Future<void> _toggle() async {
     final state = AppState.of(context);
     if (state.selectedProfile == null) {
@@ -82,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final page = LayoutBuilder(
       builder: (context, box) {
-        final scrolls = box.maxHeight < 660;
+        final scrolls = box.maxHeight < _fixedLayoutMinHeight;
         final top = _TopBar(status: status);
         final hero = _Hero(
           status: status,
@@ -93,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final bottom = _Lower(
           state: state,
           onAddServer: () => _goTo(ShellTab.servers),
-          onOpenSplit: widget.onOpenSplit ?? () => _goTo(ShellTab.servers),
+          onOpenSplit: widget.onOpenSplit ?? () => _openSplit(state),
         );
 
         if (scrolls) {
@@ -111,19 +139,17 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
+        // The lower block gets a fixed slot, so the area above it (and the dial in it)
+        // keeps its height when the traffic row appears or disappears.
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             top,
-            Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: Space.s16),
-                  child: hero,
-                ),
-              ),
+            Expanded(child: Center(child: hero)),
+            SizedBox(
+              height: _lowerSlot,
+              child: Align(alignment: Alignment.bottomCenter, child: bottom),
             ),
-            bottom,
             const SizedBox(height: Space.s16),
           ],
         );
@@ -252,63 +278,67 @@ class _Hero extends StatelessWidget {
           semanticValue: statusWord(l10n, status),
         ),
         const SizedBox(height: Space.s24),
-        AnimatedSize(
-          duration: Durations.stateChange,
-          curve: Durations.curve,
-          alignment: Alignment.topCenter,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (connected) ...[
-                SessionTimer(
-                  connectedAt: status.connectedAt,
-                  active: timerActive,
-                  style: context.obs.display,
-                ),
-                const SizedBox(height: Space.s4),
-                Text(
-                  action,
-                  style: theme.labelLarge!.copyWith(color: c.textDim),
-                ),
-              ] else ...[
-                Text(
-                  action,
-                  style: theme.titleLarge!.copyWith(
-                    color: status.phase == VpnPhase.disconnecting
-                        ? c.textDim
-                        : c.text,
+        // Fixed height: the label changes size per state, the dial above must not move.
+        SizedBox(
+          height: _labelSlot,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (connected) ...[
+                  SessionTimer(
+                    connectedAt: status.connectedAt,
+                    active: timerActive,
+                    style: context.obs.display,
                   ),
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: Space.s8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: Space.s16),
-                    child: Text(
-                      error,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: theme.bodySmall!.copyWith(
-                        color: c.danger,
-                        height: 1.35,
-                      ),
+                  const SizedBox(height: Space.s4),
+                  Text(
+                    action,
+                    style: theme.labelLarge!.copyWith(color: c.textDim),
+                  ),
+                ] else ...[
+                  Text(
+                    action,
+                    style: theme.titleLarge!.copyWith(
+                      color: status.phase == VpnPhase.disconnecting
+                          ? c.textDim
+                          : c.text,
                     ),
                   ),
-                  TextButton(
-                    onPressed: onOpenLogs,
-                    style: TextButton.styleFrom(
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      minimumSize: const Size(0, 32),
+                  if (error != null) ...[
+                    const SizedBox(height: Space.s8),
+                    Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: Space.s12,
+                        horizontal: Space.s16,
                       ),
-                      foregroundColor: c.textDim,
+                      child: Text(
+                        error,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: theme.bodySmall!.copyWith(
+                          color: c.danger,
+                          height: 1.35,
+                        ),
+                      ),
                     ),
-                    child: Text(l10n.homeLogs),
-                  ),
+                    TextButton(
+                      onPressed: onOpenLogs,
+                      style: TextButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        minimumSize: const Size(0, 32),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Space.s12,
+                        ),
+                        foregroundColor: c.textDim,
+                      ),
+                      child: Text(l10n.homeLogs),
+                    ),
+                  ],
                 ],
               ],
-            ],
+            ),
           ),
         ),
       ],

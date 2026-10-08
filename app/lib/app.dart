@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:obsidian_vpn/core/models/profile.dart';
 import 'package:obsidian_vpn/core/storage/store.dart';
+import 'package:obsidian_vpn/desktop/desktop_shell.dart';
 import 'package:obsidian_vpn/state/app_state.dart';
 
 import 'l10n/app_localizations.dart';
@@ -30,6 +33,8 @@ class _ObsidianBootstrapState extends State<ObsidianBootstrap> {
   Future<AppState> _boot() async {
     final state = await _create();
     await state.init();
+    // Tray icon and close behaviour. Desktop only, and never blocks the first frame.
+    unawaited(DesktopShell.attach(state));
     return state;
   }
 

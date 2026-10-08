@@ -61,5 +61,307 @@
     }
   },
   "pingNoReply": "нет ответа",
-  "sheetClose": "Закрыть"
+  "sheetClose": "Закрыть",
+  "accessServers": "Мои серверы",
+  "accessKeys": "Выданные ключи",
+  "accessDeploy": "Развернуть сервер",
+  "accessIssue": "Выдать ключ",
+  "accessIssueNeedsServer": "Чтобы выдать ключ, сначала разверни свой сервер.",
+  "accessEmpty": "Obsidian ставится на чистый VPS с Ubuntu 22.04/24.04 или Debian 12, после этого с него выдаются ключи.",
+  "accessKeysEmpty": "Ключей пока нет. Выдай ключ, и он появится здесь.",
+  "accessForever": "Бессрочно",
+  "accessDaysLeft": "Осталось {days} дн.",
+  "@accessDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "accessExpired": "Срок истёк",
+  "accessDevices": "Устройств: {count}",
+  "@accessDevices": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accessNeedsUpdate": "Нужно обновить",
+  "accessKeyMore": "Действия с ключом",
+  "accessKeyDelete": "Удалить ключ",
+  "accessKeyDeleteTitle": "Удалить ключ?",
+  "accessKeyDeleteText": "Ключ «{name}» пропадёт из списка. Отзыв ключей на сервере пока не поддерживается, поэтому он может работать до обнуления сервера.",
+  "@accessKeyDeleteText": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "accessKeyDeleted": "Ключ удалён",
+  "accessIssueTitle": "Новый ключ",
+  "accessIssueName": "Имя",
+  "accessIssueNameHint": "Гость",
+  "accessIssueValidity": "Срок действия",
+  "accessValidity7": "7 дней",
+  "accessValidity30": "30 дней",
+  "accessValidity90": "90 дней",
+  "accessIssueDevices": "Устройств",
+  "accessFewer": "Меньше",
+  "accessMore": "Больше",
+  "accessIssueServer": "Сервер",
+  "accessIssueSubmit": "Выдать",
+  "accessKeyTitle": "Ключ",
+  "accessKeyServer": "Сервер",
+  "accessKeyExpiry": "Срок действия",
+  "accessKeyDevicesLabel": "Устройств",
+  "accessKeyCopyLink": "Скопировать ссылку",
+  "accessKeyCopyKey": "Скопировать ключ",
+  "accessKeyShowKey": "Показать ключ текстом",
+  "accessKeyQrHint": "Отсканируй QR-код в Obsidian на другом устройстве.",
+  "accessKeyExpiresOn": "До {date}",
+  "@accessKeyExpiresOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "accessCopied": "Скопировано",
+  "vpsDeployTitle": "Развернуть сервер",
+  "vpsDeployHint": "Подойдёт чистый Ubuntu 22.04/24.04 или Debian 12. Пароль или ключ хранятся только на этом устройстве.",
+  "vpsHostLabel": "IP или домен",
+  "vpsHostRequired": "Укажи IP или домен.",
+  "vpsHostInvalid": "Адрес записан с ошибкой. Пример: 203.0.113.10 или vps.example.net",
+  "vpsPortLabel": "Порт SSH",
+  "vpsPortInvalid": "Порт от 1 до 65535.",
+  "vpsUserLabel": "Пользователь",
+  "vpsUserRequired": "Укажи пользователя.",
+  "vpsAuthLabel": "Вход",
+  "vpsAuthPassword": "Пароль",
+  "vpsAuthKey": "SSH-ключ",
+  "vpsPasswordLabel": "Пароль",
+  "vpsPasswordRequired": "Введи пароль.",
+  "vpsPasswordShow": "Показать пароль",
+  "vpsPasswordHide": "Скрыть пароль",
+  "vpsKeyFile": "Выбрать файл ключа",
+  "vpsKeyFilePicked": "Файл: {name}",
+  "@vpsKeyFilePicked": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "vpsKeyPasteLabel": "Или вставь приватный ключ",
+  "vpsKeyRequired": "Выбери файл или вставь приватный ключ.",
+  "vpsKeyInvalid": "Это не похоже на приватный ключ. Нужен блок BEGIN ... PRIVATE KEY.",
+  "vpsPassphraseLabel": "Пароль к ключу, если есть",
+  "vpsSniLabel": "Маскировка (SNI)",
+  "vpsSniCaption": "Сайт, под который маскируется трафик. Клиенты используют тот же адрес.",
+  "vpsSniHint": "Домен, например example.org",
+  "vpsSniInvalid": "Укажи домен без https:// и пути.",
+  "vpsDeployStart": "Развернуть",
+  "vpsCancel": "Отмена",
+  "vpsCancelDeployTitle": "Прервать установку?",
+  "vpsCancelDeployText": "Сервер останется в промежуточном состоянии. Чтобы продолжить, его придётся переустановить на чистом VPS.",
+  "vpsCancelDeployAction": "Прервать",
+  "vpsStay": "Продолжить",
+  "vpsProgressTitle": "Установка",
+  "vpsSheetRunning": "Не закрывай приложение до конца операции.",
+  "vpsConsole": "Журнал",
+  "vpsCopyLog": "Скопировать журнал",
+  "vpsLogCopied": "Журнал скопирован",
+  "vpsRetry": "Повторить",
+  "vpsFailed": "Операция не выполнена",
+  "vpsSuccessTitle": "Сервер готов",
+  "vpsSuccessText": "Владельческий ключ добавлен в Серверы и выбран. Им подключаешься сам.",
+  "vpsAdminToken": "Токен администратора",
+  "vpsAdminTokenWarning": "Сохрани его, второй раз не покажем. Он нужен для управления ключами на сервере.",
+  "vpsCopy": "Скопировать",
+  "vpsCopied": "Скопировано",
+  "vpsDone": "Готово",
+  "vpsHostKeyTitle": "Ключ сервера изменился",
+  "vpsHostKeyText": "Отпечаток SSH-ключа сервера не совпадает с сохранённым. Так бывает после переустановки VPS, но это может быть и подмена сервера. Доверяй новому ключу, только если переустановил сервер сам.",
+  "vpsHostKeyExpected": "Ожидался",
+  "vpsHostKeyActual": "Получен",
+  "vpsHostKeyTrust": "Доверять новому ключу",
+  "vpsManageTitle": "Сервер",
+  "vpsBadgeReality": "REALITY :{port}",
+  "@vpsBadgeReality": {
+    "placeholders": {
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "vpsBadgeIpv4": "IPv4",
+  "vpsBadgeDualStack": "Dual-Stack",
+  "vpsBadgeCreds": "SSH сохранён",
+  "vpsNoCreds": "Доступ по SSH не сохранён. Без него нельзя обновить ядро и менять настройки.",
+  "vpsAddCreds": "Добавить доступ",
+  "vpsSniSection": "Маскировка (SNI)",
+  "vpsSniApply": "Применить новый SNI",
+  "vpsReissueNote": "Владельческий ключ пересоберётся. Ранее выданные ключи нужно выдать заново: в них записаны старые настройки.",
+  "vpsSniDone": "SNI применён",
+  "vpsIpv6Section": "IPv6",
+  "vpsIpv6Done": "Настройка IPv6 сохранена",
+  "vpsCoreSection": "Ядро",
+  "vpsCoreVersion": "Версия {version}",
+  "@vpsCoreVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "vpsUpdateNeeded": "Требуется обновление",
+  "vpsUpToDate": "Актуально",
+  "vpsCheckUpdates": "Проверить обновления",
+  "vpsUpdate": "Обновить",
+  "vpsUpdateDone": "Ядро обновлено",
+  "vpsCheckLatest": "Установлена актуальная версия ядра.",
+  "vpsCheckOutdated": "Доступна новая версия ядра.",
+  "vpsSshSection": "Доступ по SSH",
+  "vpsEditSsh": "Изменить доступ",
+  "vpsSaveSsh": "Сохранить",
+  "vpsSshSaved": "Доступ сохранён",
+  "vpsResetAction": "Обнулить сервер",
+  "vpsResetTitle": "Обнулить сервер?",
+  "vpsResetText": "Все ключи, выданные с этого сервера, перестанут работать. Сервер получит новые ключи, владельческий ключ пересоберётся.",
+  "vpsResetConfirm": "Обнулить",
+  "vpsResetDone": "Сервер обнулён, владельческий ключ обновлён",
+  "vpsSheetCheck": "Проверка версии",
+  "vpsSheetSni": "Смена SNI",
+  "vpsSheetUpdate": "Обновление ядра",
+  "vpsSheetIpv6": "Настройка IPv6",
+  "vpsSheetReset": "Обнуление сервера",
+  "vpsErrorGeneric": "Что-то пошло не так. Попробуй ещё раз.",
+  "vpsOwnerKeyMissing": "Владельческий ключ не найден на этом устройстве. Переустанови сервер, чтобы создать его заново.",
+  "serversTitle": "Серверы",
+  "serversSectionFavorites": "Избранное",
+  "serversSectionAll": "Все серверы",
+  "serversAddKey": "Добавить ключ",
+  "serversScanQr": "Сканировать QR",
+  "serversEmpty": "Добавь первый сервер: вставь ключ доступа.",
+  "serversMore": "Действия",
+  "serversActionRename": "Переименовать",
+  "serversActionFavoriteAdd": "В избранное",
+  "serversActionFavoriteRemove": "Убрать из избранного",
+  "serversActionSplit": "Раздельный туннель",
+  "serversActionDelete": "Удалить",
+  "serversRenameTitle": "Новое название",
+  "serversNameLabel": "Название",
+  "serversNameHint": "Например, Франкфурт",
+  "serversSave": "Сохранить",
+  "serversRenamed": "Название сохранено",
+  "serversFavoriteAdded": "Добавлен в избранное",
+  "serversFavoriteRemoved": "Убран из избранного",
+  "serversDeleteTitle": "Удалить сервер?",
+  "serversDeleteBody": "Ключ этого сервера удалится с устройства. Вернуть сервер можно, только вставив ключ заново.",
+  "serversDeleteConfirm": "Удалить",
+  "serversCancel": "Отмена",
+  "serversDeleted": "Сервер удалён",
+  "serversDeleteBlocked": "Сначала отключись от этого сервера.",
+  "serversAdded": "Сервер добавлен",
+  "serversAddFailed": "Не удалось сохранить сервер. Попробуй ещё раз.",
+  "serversClipboardEmpty": "В буфере обмена нет текста.",
+  "addKeyTitle": "Добавить ключ",
+  "addKeyField": "Ключ доступа",
+  "addKeyFieldHint": "Вставь ключ или ссылку obsidian://",
+  "addKeyPaste": "Вставить",
+  "addKeyNameField": "Название, необязательно",
+  "addKeyNameHint": "Например, Франкфурт",
+  "addKeyRecognized": "Распознано: {hostPort}",
+  "@addKeyRecognized": {
+    "placeholders": {
+      "hostPort": {
+        "type": "String"
+      }
+    }
+  },
+  "addKeySubmit": "Добавить",
+  "qrTitle": "Сканировать QR",
+  "qrHint": "Наведи камеру на QR-код ключа",
+  "qrTorch": "Фонарик",
+  "qrDeniedTitle": "Нет доступа к камере",
+  "qrDeniedBody": "Разреши доступ к камере в настройках системы, чтобы сканировать ключ. Или вставь ключ вручную.",
+  "qrError": "Камера недоступна. Вставь ключ вручную.",
+  "splitTitle": "Раздельный туннель",
+  "splitModeOff": "Выкл",
+  "splitModeInclude": "Только список",
+  "splitModeExclude": "Кроме списка",
+  "splitOffNote": "Весь трафик идет через VPN. Список ниже сохранится.",
+  "splitPresets": "Готовые наборы",
+  "splitPresetCount": "Адресов в наборе: {count}",
+  "@splitPresetCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitEntries": "Свои правила",
+  "splitEntriesHint": "Домен, IP или подсеть в каждой строке",
+  "splitAccepted": "Принято правил: {count}",
+  "@splitAccepted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitIssues": "Не распознано",
+  "splitEmptyWarning": "Список пуст: через VPN сейчас ничего не идет.",
+  "splitNoteDomains": "Домены повторно резолвятся каждые 10 минут.",
+  "splitNoteWildcards": "Маски вроде *.ru не поддерживаются: укажи конкретный домен.",
+  "splitNoteIdn": "Кириллические домены записывай в punycode, с префиксом xn--.",
+  "splitSave": "Сохранить",
+  "splitSaved": "Правила сохранены",
+  "splitSavedSkipped": "Правила сохранены. Пропущено строк: {count}",
+  "@splitSavedSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitLiveNote": "Изменения сразу применятся к текущему подключению.",
+  "splitUnsavedTitle": "Сохранить изменения?",
+  "splitUnsavedBody": "Раздельный туннель изменён, но не сохранён.",
+  "splitDiscard": "Не сохранять",
+  "splitKeepEditing": "Остаться",
+  "splitMissing": "Сервер не найден.",
+  "settingsSectionConnection": "Подключение",
+  "settingsAutoConnect": "Подключаться при запуске",
+  "settingsKillSwitch": "Блокировать трафик без VPN",
+  "settingsKillSwitchIosCaption": "Применяется при следующем подключении.",
+  "settingsKillSwitchAndroidCaption": "Откроется системный раздел VPN. Включи «Постоянная VPN» и «Блокировать соединения без VPN» для Obsidian.",
+  "settingsSectionInterface": "Интерфейс",
+  "settingsTheme": "Тема",
+  "settingsThemeSystem": "Системная",
+  "settingsThemeDark": "Тёмная",
+  "settingsThemeLight": "Светлая",
+  "settingsLanguage": "Язык",
+  "settingsLocaleSystem": "Системный",
+  "settingsLocaleRu": "Русский",
+  "settingsLocaleEn": "English",
+  "settingsHaptics": "Тактильный отклик",
+  "settingsSectionDesktop": "Компьютер",
+  "settingsAutostart": "Запускать вместе с системой",
+  "settingsMinimizeToTray": "Сворачивать в трей при закрытии",
+  "settingsMinimizeToTrayCaption": "Если выключено, закрытие окна завершает приложение.",
+  "settingsSectionDiagnostics": "Диагностика",
+  "settingsConnectionLog": "Журнал подключения",
+  "settingsDeviceId": "ID устройства",
+  "settingsDeviceIdCopied": "ID устройства скопирован",
+  "settingsSectionAbout": "О приложении",
+  "settingsVersion": "Версия",
+  "settingsProtocol": "Протокол Obsidian v2, REALITY и UDP",
+  "logsClear": "Очистить",
+  "trayOpen": "Открыть",
+  "trayConnect": "Подключить",
+  "trayDisconnect": "Отключить",
+  "trayQuit": "Выйти"
 }

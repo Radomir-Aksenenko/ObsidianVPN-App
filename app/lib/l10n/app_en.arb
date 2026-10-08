@@ -40,5 +40,307 @@
   "unitGigabyte": "GB",
   "pingMs": "{ms} ms",
   "pingNoReply": "no reply",
-  "sheetClose": "Close"
+  "sheetClose": "Close",
+  "accessServers": "My servers",
+  "accessKeys": "Issued keys",
+  "accessDeploy": "Deploy server",
+  "accessIssue": "Issue key",
+  "accessIssueNeedsServer": "Deploy your own server first. Keys are issued from it.",
+  "accessEmpty": "Obsidian installs on a clean Ubuntu 22.04/24.04 or Debian 12 VPS, and you issue keys from it afterwards.",
+  "accessKeysEmpty": "No keys yet. Issue one and it will appear here.",
+  "accessForever": "Forever",
+  "accessDaysLeft": "{days} days left",
+  "@accessDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "accessExpired": "Expired",
+  "accessDevices": "Devices: {count}",
+  "@accessDevices": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accessNeedsUpdate": "Update needed",
+  "accessKeyMore": "Key actions",
+  "accessKeyDelete": "Delete key",
+  "accessKeyDeleteTitle": "Delete key?",
+  "accessKeyDeleteText": "Key \"{name}\" will be removed from the list. Revoking keys on the server is not supported yet, so it may keep working until the server is reset.",
+  "@accessKeyDeleteText": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "accessKeyDeleted": "Key deleted",
+  "accessIssueTitle": "New key",
+  "accessIssueName": "Name",
+  "accessIssueNameHint": "Guest",
+  "accessIssueValidity": "Validity",
+  "accessValidity7": "7 days",
+  "accessValidity30": "30 days",
+  "accessValidity90": "90 days",
+  "accessIssueDevices": "Devices",
+  "accessFewer": "Fewer",
+  "accessMore": "More",
+  "accessIssueServer": "Server",
+  "accessIssueSubmit": "Issue",
+  "accessKeyTitle": "Key",
+  "accessKeyServer": "Server",
+  "accessKeyExpiry": "Validity",
+  "accessKeyDevicesLabel": "Devices",
+  "accessKeyCopyLink": "Copy link",
+  "accessKeyCopyKey": "Copy key",
+  "accessKeyShowKey": "Show key as text",
+  "accessKeyQrHint": "Scan the QR code in Obsidian on another device.",
+  "accessKeyExpiresOn": "Until {date}",
+  "@accessKeyExpiresOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "accessCopied": "Copied",
+  "vpsDeployTitle": "Deploy server",
+  "vpsDeployHint": "A clean Ubuntu 22.04/24.04 or Debian 12 works. The password or key stays only on this device.",
+  "vpsHostLabel": "IP or domain",
+  "vpsHostRequired": "Enter an IP or domain.",
+  "vpsHostInvalid": "The address looks wrong. Example: 203.0.113.10 or vps.example.net",
+  "vpsPortLabel": "SSH port",
+  "vpsPortInvalid": "Port must be from 1 to 65535.",
+  "vpsUserLabel": "User",
+  "vpsUserRequired": "Enter a user.",
+  "vpsAuthLabel": "Sign in",
+  "vpsAuthPassword": "Password",
+  "vpsAuthKey": "SSH key",
+  "vpsPasswordLabel": "Password",
+  "vpsPasswordRequired": "Enter the password.",
+  "vpsPasswordShow": "Show password",
+  "vpsPasswordHide": "Hide password",
+  "vpsKeyFile": "Choose key file",
+  "vpsKeyFilePicked": "File: {name}",
+  "@vpsKeyFilePicked": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "vpsKeyPasteLabel": "Or paste the private key",
+  "vpsKeyRequired": "Choose a file or paste the private key.",
+  "vpsKeyInvalid": "This does not look like a private key. Expected a BEGIN ... PRIVATE KEY block.",
+  "vpsPassphraseLabel": "Key passphrase, if any",
+  "vpsSniLabel": "Masking site (SNI)",
+  "vpsSniCaption": "The site the traffic is disguised as. Clients use the same address.",
+  "vpsSniHint": "Domain, for example example.org",
+  "vpsSniInvalid": "Enter a domain without https:// or a path.",
+  "vpsDeployStart": "Deploy",
+  "vpsCancel": "Cancel",
+  "vpsCancelDeployTitle": "Stop installation?",
+  "vpsCancelDeployText": "The server will be left half-installed. To finish, reinstall it on a clean VPS.",
+  "vpsCancelDeployAction": "Stop",
+  "vpsStay": "Keep going",
+  "vpsProgressTitle": "Installing",
+  "vpsSheetRunning": "Keep the app open until the operation finishes.",
+  "vpsConsole": "Log",
+  "vpsCopyLog": "Copy log",
+  "vpsLogCopied": "Log copied",
+  "vpsRetry": "Retry",
+  "vpsFailed": "Operation failed",
+  "vpsSuccessTitle": "Server is ready",
+  "vpsSuccessText": "The owner key was added to Servers and selected. It is your own connection.",
+  "vpsAdminToken": "Admin token",
+  "vpsAdminTokenWarning": "Save it now, it will not be shown again. It is needed to manage keys on the server.",
+  "vpsCopy": "Copy",
+  "vpsCopied": "Copied",
+  "vpsDone": "Done",
+  "vpsHostKeyTitle": "Server key changed",
+  "vpsHostKeyText": "The server's SSH fingerprint does not match the saved one. This happens after a VPS reinstall, but it can also mean the server was replaced. Trust the new key only if you reinstalled the server yourself.",
+  "vpsHostKeyExpected": "Expected",
+  "vpsHostKeyActual": "Received",
+  "vpsHostKeyTrust": "Trust new key",
+  "vpsManageTitle": "Server",
+  "vpsBadgeReality": "REALITY :{port}",
+  "@vpsBadgeReality": {
+    "placeholders": {
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "vpsBadgeIpv4": "IPv4",
+  "vpsBadgeDualStack": "Dual-Stack",
+  "vpsBadgeCreds": "SSH saved",
+  "vpsNoCreds": "SSH access is not saved. Without it you cannot update the core or change settings.",
+  "vpsAddCreds": "Add access",
+  "vpsSniSection": "Masking (SNI)",
+  "vpsSniApply": "Apply new SNI",
+  "vpsReissueNote": "The owner key is rebuilt. Keys issued before must be issued again, because they carry the old settings.",
+  "vpsSniDone": "SNI applied",
+  "vpsIpv6Section": "IPv6",
+  "vpsIpv6Done": "IPv6 setting saved",
+  "vpsCoreSection": "Core",
+  "vpsCoreVersion": "Version {version}",
+  "@vpsCoreVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "vpsUpdateNeeded": "Update required",
+  "vpsUpToDate": "Up to date",
+  "vpsCheckUpdates": "Check for updates",
+  "vpsUpdate": "Update",
+  "vpsUpdateDone": "Core updated",
+  "vpsCheckLatest": "The core is up to date.",
+  "vpsCheckOutdated": "A newer core is available.",
+  "vpsSshSection": "SSH access",
+  "vpsEditSsh": "Edit access",
+  "vpsSaveSsh": "Save",
+  "vpsSshSaved": "Access saved",
+  "vpsResetAction": "Reset server",
+  "vpsResetTitle": "Reset server?",
+  "vpsResetText": "All keys issued from this server will stop working. The server gets new keys and the owner key is rebuilt.",
+  "vpsResetConfirm": "Reset",
+  "vpsResetDone": "Server reset, owner key updated",
+  "vpsSheetCheck": "Checking version",
+  "vpsSheetSni": "Changing SNI",
+  "vpsSheetUpdate": "Updating core",
+  "vpsSheetIpv6": "Setting IPv6",
+  "vpsSheetReset": "Resetting server",
+  "vpsErrorGeneric": "Something went wrong. Try again.",
+  "vpsOwnerKeyMissing": "The owner key is not stored on this device. Reinstall the server to create it again.",
+  "serversTitle": "Servers",
+  "serversSectionFavorites": "Favorites",
+  "serversSectionAll": "All servers",
+  "serversAddKey": "Add key",
+  "serversScanQr": "Scan QR",
+  "serversEmpty": "Add your first server: paste an access key.",
+  "serversMore": "Actions",
+  "serversActionRename": "Rename",
+  "serversActionFavoriteAdd": "Add to favorites",
+  "serversActionFavoriteRemove": "Remove from favorites",
+  "serversActionSplit": "Split tunnel",
+  "serversActionDelete": "Delete",
+  "serversRenameTitle": "New name",
+  "serversNameLabel": "Name",
+  "serversNameHint": "For example, Frankfurt",
+  "serversSave": "Save",
+  "serversRenamed": "Name saved",
+  "serversFavoriteAdded": "Added to favorites",
+  "serversFavoriteRemoved": "Removed from favorites",
+  "serversDeleteTitle": "Delete server?",
+  "serversDeleteBody": "The key for this server will be removed from this device. You can add the server back only by pasting its key again.",
+  "serversDeleteConfirm": "Delete",
+  "serversCancel": "Cancel",
+  "serversDeleted": "Server deleted",
+  "serversDeleteBlocked": "Disconnect from this server first.",
+  "serversAdded": "Server added",
+  "serversAddFailed": "Could not save the server. Try again.",
+  "serversClipboardEmpty": "The clipboard has no text.",
+  "addKeyTitle": "Add key",
+  "addKeyField": "Access key",
+  "addKeyFieldHint": "Paste a key or an obsidian:// link",
+  "addKeyPaste": "Paste",
+  "addKeyNameField": "Name, optional",
+  "addKeyNameHint": "For example, Frankfurt",
+  "addKeyRecognized": "Recognized: {hostPort}",
+  "@addKeyRecognized": {
+    "placeholders": {
+      "hostPort": {
+        "type": "String"
+      }
+    }
+  },
+  "addKeySubmit": "Add",
+  "qrTitle": "Scan QR",
+  "qrHint": "Point the camera at the key QR code",
+  "qrTorch": "Torch",
+  "qrDeniedTitle": "No camera access",
+  "qrDeniedBody": "Allow camera access in system settings to scan a key. Or paste the key by hand.",
+  "qrError": "The camera is unavailable. Paste the key by hand.",
+  "splitTitle": "Split tunnel",
+  "splitModeOff": "Off",
+  "splitModeInclude": "Only listed",
+  "splitModeExclude": "All except listed",
+  "splitOffNote": "All traffic goes through the VPN. The list below is kept.",
+  "splitPresets": "Presets",
+  "splitPresetCount": "Addresses in the set: {count}",
+  "@splitPresetCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitEntries": "Custom rules",
+  "splitEntriesHint": "A domain, IP or subnet on each line",
+  "splitAccepted": "Accepted rules: {count}",
+  "@splitAccepted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitIssues": "Not recognized",
+  "splitEmptyWarning": "The list is empty: nothing goes through the VPN right now.",
+  "splitNoteDomains": "Domains are re-resolved every 10 minutes.",
+  "splitNoteWildcards": "Wildcards like *.ru are not supported: list specific domains.",
+  "splitNoteIdn": "Write Cyrillic domains in punycode, with the xn-- prefix.",
+  "splitSave": "Save",
+  "splitSaved": "Rules saved",
+  "splitSavedSkipped": "Rules saved. Lines skipped: {count}",
+  "@splitSavedSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "splitLiveNote": "Changes apply to the current connection right away.",
+  "splitUnsavedTitle": "Save changes?",
+  "splitUnsavedBody": "The split tunnel was changed but not saved.",
+  "splitDiscard": "Discard",
+  "splitKeepEditing": "Keep editing",
+  "splitMissing": "Server not found.",
+  "settingsSectionConnection": "Connection",
+  "settingsAutoConnect": "Connect on launch",
+  "settingsKillSwitch": "Block traffic without VPN",
+  "settingsKillSwitchIosCaption": "Applies on the next connection.",
+  "settingsKillSwitchAndroidCaption": "Opens the system VPN page. Turn on \"Always-on VPN\" and \"Block connections without VPN\" for Obsidian.",
+  "settingsSectionInterface": "Interface",
+  "settingsTheme": "Theme",
+  "settingsThemeSystem": "System",
+  "settingsThemeDark": "Dark",
+  "settingsThemeLight": "Light",
+  "settingsLanguage": "Language",
+  "settingsLocaleSystem": "System",
+  "settingsLocaleRu": "Русский",
+  "settingsLocaleEn": "English",
+  "settingsHaptics": "Haptic feedback",
+  "settingsSectionDesktop": "Computer",
+  "settingsAutostart": "Start with the system",
+  "settingsMinimizeToTray": "Minimize to tray on close",
+  "settingsMinimizeToTrayCaption": "If off, closing the window quits the app.",
+  "settingsSectionDiagnostics": "Diagnostics",
+  "settingsConnectionLog": "Connection log",
+  "settingsDeviceId": "Device ID",
+  "settingsDeviceIdCopied": "Device ID copied",
+  "settingsSectionAbout": "About",
+  "settingsVersion": "Version",
+  "settingsProtocol": "Obsidian protocol v2, REALITY and UDP",
+  "logsClear": "Clear",
+  "trayOpen": "Open",
+  "trayConnect": "Connect",
+  "trayDisconnect": "Disconnect",
+  "trayQuit": "Quit"
 }
