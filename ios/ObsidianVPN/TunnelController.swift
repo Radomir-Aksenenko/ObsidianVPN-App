@@ -60,6 +60,39 @@ final class TunnelController: ObservableObject {
         if case .failed = state { state = .disconnected }
     }
 
+    /// Сохраняет правила раздельного туннелирования профиля и применяет их.
+    /// Если туннель поднят для этого же профиля, правила уходят в extension сообщением без переподключения.
+    /// Иначе они попадут в конфигурацию при следующем подключении (и для автоподключения).
+    func splitTunnelDidChange(_ profile: VPNProfile) {
+        guard let manager,
+              let proto = manager.protocolConfiguration as? NETunnelProviderProtocol,
+              proto.providerConfiguration?["configURI"] as? String == profile.configURI
+        else { return }
+
+        var providerConfig = proto.providerConfiguration ?? [:]
+        providerConfig["splitTunnel"] = profile.effectiveSplit.jsonString
+        proto.providerConfiguration = providerConfig
+        manager.protocolConfiguration = proto
+        manager.saveToPreferences { error in
+            if let error {
+                Task { @MainActor in
+                    LogStore.shared.log("Не удалось сохранить правила туннелирования: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        guard state == .connected,
+              let session = manager.connection as? NETunnelProviderSession,
+              let data = profile.effectiveSplit.jsonData
+        else { return }
+        do {
+            try session.sendProviderMessage(data, responseHandler: nil)
+            LogStore.shared.log("Правила раздельного туннелирования отправлены в туннель")
+        } catch {
+            LogStore.shared.log("Не удалось применить правила туннелирования: \(error.localizedDescription)")
+        }
+    }
+
     private func connect(_ profile: VPNProfile) async {
         state = .preparing
         sharedDefaults.removeObject(forKey: "lastTunnelError")
@@ -113,7 +146,8 @@ final class TunnelController: ObservableObject {
         tunnelProtocol.serverAddress = profile.endpoint
         tunnelProtocol.providerConfiguration = [
             "configURI": profile.configURI,
-            "profileName": profile.name
+            "profileName": profile.name,
+            "splitTunnel": profile.effectiveSplit.jsonString
         ]
         tunnelProtocol.disconnectOnSleep = false
         tunnelProtocol.includeAllNetworks = false

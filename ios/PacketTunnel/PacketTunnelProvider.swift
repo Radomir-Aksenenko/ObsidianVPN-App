@@ -133,6 +133,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lastStatsFlush: Date = Date()
     private let statsLock = NSLock()
 
+    // Раздельное туннелирование. Все изменения маршрутов идут через routeQueue.
+    private let routeQueue = DispatchQueue(label: "com.obsidian.vpn.split-routes")
+    private var activeSplit = SplitTunnelConfig()
+    private var appliedSplitSignature: String?
+    private var splitServerIP: String?
+    private var splitRefreshTimer: DispatchSourceTimer?
+    private static let splitRefreshInterval: DispatchTimeInterval = .seconds(600)
+    private static let splitResolveTimeout: TimeInterval = 2.0
+
     override func startTunnel(
         options: [String: NSObject]?,
         completionHandler: @escaping (Error?) -> Void
@@ -177,21 +186,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let serverIP = extractServerIP(from: uri, fallback: rawServer)
         tunnelLog("Адрес шлюза/сервера: \(serverIP ?? "10.8.0.1")")
 
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: serverIP ?? "10.8.0.1")
-        let ipv4 = NEIPv4Settings(addresses: ["10.8.0.2"], subnetMasks: ["255.255.255.0"])
-        ipv4.includedRoutes = [.default()]
-
-        if let serverIP {
-            ipv4.excludedRoutes = [NEIPv4Route(destinationAddress: serverIP, subnetMask: "255.255.255.255")]
-        }
-
-        settings.ipv4Settings = ipv4
-
-        let dns = NEDNSSettings(servers: ["1.1.1.1", "8.8.8.8"])
-        dns.matchDomains = [""]
-        settings.dnsSettings = dns
-        // MTU 1280 ensures zero fragmentation and no PMTU black hole across any mobile APN (LTE/5G)
-        settings.mtu = 1280
+        let split = loadSplitConfig()
+        splitServerIP = serverIP
+        let plan = makeSplitPlan(config: split, serverIP: serverIP)
+        tunnelLog("Раздельное туннелирование: \(describeSplit(split, plan))")
+        let settings = makeNetworkSettings(serverIP: serverIP, plan: plan)
 
         setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self else { return }
@@ -203,12 +202,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
 
+            self.routeQueue.async {
+                self.activeSplit = split
+                self.appliedSplitSignature = plan.signature
+            }
+
             tunnelLog("Сетевые настройки применены (MTU 1280), запуск ядра Obsidian...")
             do {
                 try self.engine.start(configURI: uri, mtu: 1280)
                 self.isRunning = true
                 self.readFromSystem()
                 self.readFromEngine()
+                self.routeQueue.async { self.scheduleSplitRefresh() }
                 tunnelLog("Ядро Obsidian успешно запущено, туннель активен")
                 completionHandler(nil)
             } catch {
@@ -218,6 +223,120 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(error)
             }
         }
+    }
+
+    // MARK: - Split tunneling
+
+    /// Правила приходят в providerConfiguration["splitTunnel"] как JSON-строка.
+    private func loadSplitConfig() -> SplitTunnelConfig {
+        let raw = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["splitTunnel"] as? String
+        guard let raw, let data = raw.data(using: .utf8), let config = SplitTunnelConfig.decode(json: data) else {
+            return SplitTunnelConfig()
+        }
+        return config
+    }
+
+    /// Резолвит домены (с таймаутом) и строит план маршрутов. Блокирует поток до 2 секунд при доменах.
+    private func makeSplitPlan(config: SplitTunnelConfig, serverIP: String?) -> SplitRoutePlan {
+        var resolved: [String] = []
+        if config.mode != .off {
+            let domains = config.rules.domains
+            if !domains.isEmpty {
+                resolved = DomainResolver.resolveIPv4(domains, timeout: Self.splitResolveTimeout)
+            }
+        }
+        return SplitRouteBuilder.plan(config: config, serverIP: serverIP, resolvedIPs: resolved)
+    }
+
+    private func makeNetworkSettings(serverIP: String?, plan: SplitRoutePlan) -> NEPacketTunnelNetworkSettings {
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: serverIP ?? "10.8.0.1")
+        let ipv4 = NEIPv4Settings(addresses: ["10.8.0.2"], subnetMasks: ["255.255.255.0"])
+
+        if plan.useDefaultRoute {
+            ipv4.includedRoutes = [NEIPv4Route.default()]
+            ipv4.excludedRoutes = plan.excludedRoutes.map {
+                NEIPv4Route(destinationAddress: $0.addressString, subnetMask: $0.maskString)
+            }
+        } else {
+            ipv4.includedRoutes = plan.includedRoutes.map {
+                NEIPv4Route(destinationAddress: $0.addressString, subnetMask: $0.maskString)
+            }
+        }
+        settings.ipv4Settings = ipv4
+
+        let dns = NEDNSSettings(servers: SplitRouteBuilder.tunnelDNSServers)
+        dns.matchDomains = plan.matchDomains
+        settings.dnsSettings = dns
+        // MTU 1280 ensures zero fragmentation and no PMTU black hole across any mobile APN (LTE/5G)
+        settings.mtu = 1280
+        return settings
+    }
+
+    /// Вызывается на routeQueue. Перечитывает домены и применяет маршруты.
+    /// Без force настройки не переотправляются, если набор маршрутов не изменился.
+    private func reapplySplit(_ config: SplitTunnelConfig, force: Bool, completion: @escaping (Bool) -> Void) {
+        guard isRunning else {
+            completion(false)
+            return
+        }
+
+        let plan = makeSplitPlan(config: config, serverIP: splitServerIP)
+        if !force && plan.signature == appliedSplitSignature {
+            completion(true)
+            return
+        }
+
+        let settings = makeNetworkSettings(serverIP: splitServerIP, plan: plan)
+        setTunnelNetworkSettings(settings) { [weak self] error in
+            guard let self else {
+                completion(false)
+                return
+            }
+            self.routeQueue.async {
+                if let error {
+                    tunnelLog("ОШИБКА: не удалось обновить раздельное туннелирование: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+                self.activeSplit = config
+                self.appliedSplitSignature = plan.signature
+                tunnelLog("Раздельное туннелирование обновлено: \(self.describeSplit(config, plan))")
+                completion(true)
+            }
+        }
+    }
+
+    /// Раз в 10 минут перерезолвим домены: CDN меняет IP. Настройки переотправляются только при изменениях.
+    private func scheduleSplitRefresh() {
+        splitRefreshTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: routeQueue)
+        timer.schedule(
+            deadline: .now() + Self.splitRefreshInterval,
+            repeating: Self.splitRefreshInterval,
+            leeway: .seconds(30)
+        )
+        timer.setEventHandler { [weak self] in
+            guard let self, self.isRunning else { return }
+            let config = self.activeSplit
+            guard config.mode != .off, !config.rules.domains.isEmpty else { return }
+            self.reapplySplit(config, force: false) { _ in }
+        }
+        timer.resume()
+        splitRefreshTimer = timer
+    }
+
+    private func describeSplit(_ config: SplitTunnelConfig, _ plan: SplitRoutePlan) -> String {
+        let modeName: String
+        switch config.mode {
+        case .off: modeName = "выкл"
+        case .include: modeName = "только выбранное через VPN"
+        case .exclude: modeName = "всё, кроме выбранного"
+        }
+        var text = "\(modeName), маршрутов: \(plan.routeCount), доменов: \(config.rules.domains.count)"
+        if plan.truncated {
+            text += ", список обрезан до \(SplitRouteBuilder.maxRoutes)"
+        }
+        return text
     }
 
     private func extractServerIP(from uri: String, fallback: String) -> String? {
@@ -272,6 +391,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         isRunning = false
+        routeQueue.async { [weak self] in
+            self?.splitRefreshTimer?.cancel()
+            self?.splitRefreshTimer = nil
+        }
         engine.stop()
         let reasonStr = stopReasonString(reason)
         tunnelLog("Туннель остановлен iOS. Причина: \(reasonStr)")
@@ -283,6 +406,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+        // JSON-сообщение: новые правила раздельного туннелирования от приложения.
+        if messageData.first == UInt8(ascii: "{") {
+            guard let config = SplitTunnelConfig.decode(json: messageData) else {
+                completionHandler?(nil)
+                return
+            }
+            routeQueue.async { [weak self] in
+                guard let self else {
+                    completionHandler?(nil)
+                    return
+                }
+                self.reapplySplit(config, force: true) { ok in
+                    completionHandler?(ok ? Data("ok".utf8) : nil)
+                }
+            }
+            return
+        }
+
         statsLock.lock()
         let curTx = totalTxBytes
         let curRx = totalRxBytes
