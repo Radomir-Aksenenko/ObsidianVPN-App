@@ -2,6 +2,7 @@ name: Release
 
 # Pushes to main publish the rolling "nightly" prerelease.
 # Pushes of a v* tag publish a versioned GitHub Release.
+# Assets: old client (ios, desktop) and the Flutter app (app.yml, copied to dist/ as Obsidian-<VERSION>-*).
 on:
   push:
     branches:
@@ -25,9 +26,14 @@ jobs:
     name: Desktop
     uses: ./.github/workflows/desktop.yml
 
+  app:
+    name: App
+    uses: ./.github/workflows/app.yml
+    secrets: inherit
+
   publish:
     name: Publish
-    needs: [ios, desktop]
+    needs: [ios, desktop, app]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -36,6 +42,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Download iOS IPA
         uses: actions/download-artifact@v4
@@ -49,9 +59,60 @@ jobs:
           name: windows-installer
           path: dist
 
-      - name: Read version
-        id: version
-        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Download app Android build
+        uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: app-dist/android
+
+      - name: Download app iOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: ios
+          path: app-dist/ios
+
+      - name: Download app macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: app-dist/macos
+
+      - name: Download app Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: app-dist/linux
+
+      - name: Download app Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: app-dist/windows
+
+      - name: Copy app builds into dist with versioned names
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Find each expected file under app-dist (artifact layout may keep sub-paths); fail if any is missing.
+          copy_app_file() {
+            local src
+            src=$(find app-dist -type f -name "$1" | head -n 1)
+            if [ -z "$src" ]; then
+              echo "Missing app build file: $1" >&2
+              exit 1
+            fi
+            cp "$src" "dist/$2"
+          }
+          copy_app_file app-arm64-v8a-release.apk "Obsidian-${VERSION}-android-arm64-v8a.apk"
+          copy_app_file app-armeabi-v7a-release.apk "Obsidian-${VERSION}-android-armeabi-v7a.apk"
+          copy_app_file app-x86_64-release.apk "Obsidian-${VERSION}-android-x86_64.apk"
+          copy_app_file app-release.aab "Obsidian-${VERSION}-android.aab"
+          copy_app_file obsidian-unsigned.ipa "Obsidian-${VERSION}-ios-unsigned.ipa"
+          copy_app_file obsidian-macos.zip "Obsidian-${VERSION}-macos.zip"
+          copy_app_file obsidian-linux-x64.tar.gz "Obsidian-${VERSION}-linux-x64.tar.gz"
+          copy_app_file obsidian-windows-x64.zip "Obsidian-${VERSION}-windows-x64.zip"
 
       - name: Show assets
         run: ls -l dist

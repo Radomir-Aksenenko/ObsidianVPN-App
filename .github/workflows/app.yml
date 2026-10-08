@@ -7,12 +7,13 @@ name: App
 # ios:     gomobile xcframework, PacketTunnel target patch, unsigned IPA.
 # macos:   universal darwin client, .app zipped with ditto.   linux: tar.gz.   windows: zip.
 # Every platform job needs "assets".
+# Called by release.yml (workflow_call) for main and v* tags, so main is not a push trigger here.
 
 on:
+  workflow_call:
   push:
     branches:
       - feat/flutter-app
-      - main
     paths:
       - "app/**"
       - "core"
@@ -29,8 +30,9 @@ on:
 permissions:
   contents: read
 
+# When called, github.workflow is the caller's name ("Release"), so called runs never share a group with standalone runs.
 concurrency:
-  group: app-${{ github.ref }}
+  group: app-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
