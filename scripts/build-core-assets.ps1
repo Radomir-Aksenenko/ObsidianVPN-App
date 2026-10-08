@@ -64,7 +64,26 @@ finally {
     Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 }
 
-Copy-Item -Force (Join-Path $Root 'wintun.dll') (Join-Path $Out 'wintun.dll')
+# wintun.dll: use the repo-root copy when its SHA256 matches the pinned value, otherwise
+# let fetch-wintun.ps1 download the pinned release, verify the zip and DLL hashes, and write it.
+$WintunDll = Join-Path $Out 'wintun.dll'
+$WintunRoot = Join-Path $Root 'wintun.dll'
+$WintunDllSha256 = 'e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce'
+$rootOk = (Test-Path -LiteralPath $WintunRoot) -and (((Get-FileHash -Algorithm SHA256 -LiteralPath $WintunRoot).Hash.ToLowerInvariant()) -eq $WintunDllSha256)
+if ($rootOk) {
+    Copy-Item -Force $WintunRoot $WintunDll
+    Write-Host 'wintun.dll: repo copy verified'
+}
+else {
+    Write-Host 'wintun.dll: repo copy missing or mismatched, fetching pinned release'
+    try {
+        & (Join-Path $PSScriptRoot 'fetch-wintun.ps1') -Destination $WintunDll
+    }
+    catch {
+        Write-Error "wintun.dll fetch failed: $_"
+        exit 1
+    }
+}
 Copy-Item -Force (Join-Path $Root 'desktop\src-tauri\resources\keyserver.py') (Join-Path $Out 'keyserver.py')
 
 Write-Host "output: $((Get-ChildItem $Out).Count) files in $Out"

@@ -48,4 +48,5 @@ app.*.map.json
 android/app/libs/*.aar
 ios/Frameworks/
 macos/Frameworks/
-assets/bin/
+assets/bin/*
+!assets/bin/.gitkeep
