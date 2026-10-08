@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var showScanner = false
     @State private var showLogs = false
     @State private var showSecurityDetails = false
+    @State private var showSplitTunnel = false
     @State private var isServerCardPressed = false
 
     @StateObject private var logStore = LogStore.shared
@@ -37,6 +38,10 @@ struct HomeView: View {
 
                         // 3. Apple Glass Server Card
                         serverCard
+
+                        if profiles.selectedProfile != nil {
+                            splitChip
+                        }
 
                         // 4. Apple 3-Tile Telemetry Dashboard
                         telemetryDashboard
@@ -102,6 +107,13 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showSecurityDetails) {
                 securityDetailsSheet
+            }
+            .sheet(isPresented: $showSplitTunnel) {
+                if let profileID = profiles.selectedProfile?.id {
+                    NavigationStack {
+                        SplitTunnelView(profileID: profileID, showsDone: true)
+                    }
+                }
             }
             .onAppear {
                 pingCurrentServer()
@@ -269,6 +281,31 @@ struct HomeView: View {
                 .onChanged { _ in isServerCardPressed = true }
                 .onEnded { _ in isServerCardPressed = false }
         )
+    }
+
+    // Компактная подпись раздельного туннелирования. Открывает экран правил в листе.
+    private var splitChip: some View {
+        let profile = profiles.selectedProfile
+        let isActive = profile?.effectiveSplit.mode != SplitTunnelMode.off
+        return Button {
+            triggerHaptic(.light)
+            showSplitTunnel = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(splitChipText(for: profile))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(isActive ? ObsidianTheme.accentCyan : ObsidianTheme.secondaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.06), in: Capsule())
+            .overlay {
+                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func latencyColor(_ ms: Int) -> Color {

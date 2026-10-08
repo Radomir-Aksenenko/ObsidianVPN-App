@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("settings.autoConnect", store: UserDefaults(suiteName: "group.com.obsidian.vpn")) private var autoConnect = false
     @AppStorage("settings.killSwitch", store: UserDefaults(suiteName: "group.com.obsidian.vpn")) private var killSwitch = true
     @AppStorage("settings.haptics", store: UserDefaults(suiteName: "group.com.obsidian.vpn")) private var haptics = true
+    @EnvironmentObject private var profiles: ProfileStore
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,38 @@ struct SettingsView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(.ultraThinMaterial.opacity(0.65))
                     )
+
+                    Section {
+                        NavigationLink {
+                            if let profileID = profiles.selectedProfile?.id {
+                                SplitTunnelView(profileID: profileID)
+                            } else {
+                                Text("Сначала добавьте сервер")
+                                    .font(.system(.body, design: .rounded))
+                                    .foregroundStyle(ObsidianTheme.secondaryText)
+                            }
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Раздельное туннелирование")
+                                    Text(splitSummaryText(for: profiles.selectedProfile))
+                                        .font(.system(.footnote, design: .rounded))
+                                        .foregroundStyle(ObsidianTheme.secondaryText)
+                                }
+                            } icon: {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .foregroundStyle(ObsidianTheme.accentCyan)
+                            }
+                        }
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(.ultraThinMaterial.opacity(0.65))
+                        )
+                    } header: {
+                        Text("Маршрутизация")
+                    } footer: {
+                        Text("Правила для выбранного сервера: какие сайты идут через VPN, а какие открываются напрямую.")
+                    }
 
                     Section {
                         Toggle(isOn: $haptics) {
