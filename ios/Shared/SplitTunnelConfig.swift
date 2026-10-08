@@ -41,15 +41,15 @@ enum SplitPreset: String, Codable, CaseIterable, Identifiable, Hashable, Sendabl
 /// Правило раздельного туннелирования после разбора строки.
 enum SplitRule: Equatable, Hashable, Sendable {
     case ipv4(IPv4Network)
-    /// IPv6 сохраняется, но пока не маршрутизируется: туннель работает только по IPv4.
-    case ipv6(String)
+    /// IPv6-адрес или префикс. Идет в маршруты v6 вместе с IPv4-правилами.
+    case ipv6(IPv6Network)
     case domain(String)
 
     /// Каноническая запись, которая попадает в список и в JSON.
     var canonical: String {
         switch self {
         case let .ipv4(network): return network.cidrString
-        case let .ipv6(text): return text
+        case let .ipv6(network): return network.cidrString
         case let .domain(name): return name
         }
     }
@@ -113,10 +113,64 @@ struct IPv4Network: Hashable, Sendable {
     }
 }
 
+struct IPv6Network: Hashable, Sendable {
+    /// Адрес сети: 16 байт, биты за пределами префикса обнулены.
+    let bytes: [UInt8]
+    let prefix: Int
+
+    init(bytes: [UInt8], prefix: Int) {
+        let clamped = min(max(prefix, 0), 128)
+        var masked = bytes
+        for index in 0..<min(16, masked.count) {
+            let bitsKept = clamped - index * 8
+            let keep: UInt8
+            if bitsKept >= 8 {
+                keep = 0xFF
+            } else if bitsKept <= 0 {
+                keep = 0
+            } else {
+                keep = UInt8(truncatingIfNeeded: 0xFF << (8 - bitsKept))
+            }
+            masked[index] &= keep
+        }
+        self.bytes = masked
+        self.prefix = clamped
+    }
+
+    /// Разбирает IPv6-адрес (без маски) в 16 байт.
+    static func parseAddress(_ text: String) -> [UInt8]? {
+        var addr = in6_addr()
+        guard text.withCString({ inet_pton(AF_INET6, $0, &addr) }) == 1 else { return nil }
+        return withUnsafeBytes(of: addr) { Array($0) }
+    }
+
+    /// Адрес как одиночный хост (/128).
+    static func host(_ text: String) -> IPv6Network? {
+        guard let bytes = parseAddress(text) else { return nil }
+        return IPv6Network(bytes: bytes, prefix: 128)
+    }
+
+    var addressString: String {
+        var raw = in6_addr()
+        withUnsafeMutableBytes(of: &raw) { dest in
+            for index in 0..<min(16, bytes.count) {
+                dest[index] = bytes[index]
+            }
+        }
+        var buffer = [CChar](repeating: 0, count: 64)
+        guard inet_ntop(AF_INET6, &raw, &buffer, 64) != nil else { return "::" }
+        return String(cString: buffer)
+    }
+
+    var cidrString: String {
+        prefix == 128 ? addressString : "\(addressString)/\(prefix)"
+    }
+}
+
 /// Все правила (пользовательские и из наборов) в разобранном виде.
 struct SplitRules: Equatable, Sendable {
     var ipv4: [IPv4Network] = []
-    var ipv6: [String] = []
+    var ipv6: [IPv6Network] = []
     var domains: [String] = []
 
     var isEmpty: Bool { ipv4.isEmpty && ipv6.isEmpty && domains.isEmpty }
@@ -124,7 +178,7 @@ struct SplitRules: Equatable, Sendable {
     static func build(from raws: [String]) -> SplitRules {
         var rules = SplitRules()
         var seenV4 = Set<IPv4Network>()
-        var seenV6 = Set<String>()
+        var seenV6 = Set<IPv6Network>()
         var seenDomains = Set<String>()
 
         for raw in raws {
@@ -132,8 +186,8 @@ struct SplitRules: Equatable, Sendable {
             switch rule {
             case let .ipv4(network):
                 if seenV4.insert(network).inserted { rules.ipv4.append(network) }
-            case let .ipv6(text):
-                if seenV6.insert(text).inserted { rules.ipv6.append(text) }
+            case let .ipv6(network):
+                if seenV6.insert(network).inserted { rules.ipv6.append(network) }
             case let .domain(name):
                 if seenDomains.insert(name).inserted { rules.domains.append(name) }
             }
@@ -268,17 +322,17 @@ enum SplitRuleParser {
                 }
                 return .ipv4(IPv4Network(address: address, prefix: prefix))
             }
-            if isIPv6(addressPart) {
+            if let bytes = IPv6Network.parseAddress(addressPart) {
                 guard (0...128).contains(prefix) else {
                     throw SplitRuleError(message: "«\(raw)»: маска IPv6 должна быть от 0 до 128")
                 }
-                return .ipv6("\(addressPart)/\(prefix)")
+                return .ipv6(IPv6Network(bytes: bytes, prefix: prefix))
             }
             throw SplitRuleError(message: "«\(raw)»: неверный адрес подсети")
         }
 
-        if isIPv6(value) {
-            return .ipv6(value)
+        if let bytes = IPv6Network.parseAddress(value) {
+            return .ipv6(IPv6Network(bytes: bytes, prefix: 128))
         }
 
         // Ссылки и адреса с портом: оставляем только имя хоста.
@@ -327,9 +381,4 @@ enum SplitRuleParser {
         }
     }
 
-    private static func isIPv6(_ text: String) -> Bool {
-        guard text.contains(":") else { return false }
-        var addr = in6_addr()
-        return text.withCString { inet_pton(AF_INET6, $0, &addr) } == 1
-    }
 }

@@ -138,6 +138,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var activeSplit = SplitTunnelConfig()
     private var appliedSplitSignature: String?
     private var splitServerIP: String?
+    private var splitServerIPv6: String?
     private var splitRefreshTimer: DispatchSourceTimer?
     private static let splitRefreshInterval: DispatchTimeInterval = .seconds(600)
     private static let splitResolveTimeout: TimeInterval = 2.0
@@ -188,7 +189,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         let split = loadSplitConfig()
         splitServerIP = serverIP
-        let plan = makeSplitPlan(config: split, serverIP: serverIP)
+        // Если хост сервера задан IPv6-литералом, его нужно исключить из v6-маршрута по умолчанию.
+        var serverIPv6: String?
+        if let host = ObsidianURIComponents.parse(uri)?.host, IPv6Network.host(host) != nil {
+            serverIPv6 = host
+        }
+        splitServerIPv6 = serverIPv6
+        let plan = makeSplitPlan(config: split, serverIP: serverIP, serverIPv6: serverIPv6)
         tunnelLog("Раздельное туннелирование: \(describeSplit(split, plan))")
         let settings = makeNetworkSettings(serverIP: serverIP, plan: plan)
 
@@ -237,15 +244,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     /// Резолвит домены (с таймаутом) и строит план маршрутов. Блокирует поток до 2 секунд при доменах.
-    private func makeSplitPlan(config: SplitTunnelConfig, serverIP: String?) -> SplitRoutePlan {
+    private func makeSplitPlan(config: SplitTunnelConfig, serverIP: String?, serverIPv6: String?) -> SplitRoutePlan {
         var resolved: [String] = []
         if config.mode != .off {
             let domains = config.rules.domains
             if !domains.isEmpty {
-                resolved = DomainResolver.resolveIPv4(domains, timeout: Self.splitResolveTimeout)
+                resolved = DomainResolver.resolve(domains, timeout: Self.splitResolveTimeout)
             }
         }
-        return SplitRouteBuilder.plan(config: config, serverIP: serverIP, resolvedIPs: resolved)
+        return SplitRouteBuilder.plan(
+            config: config,
+            serverIP: serverIP,
+            serverIPv6: serverIPv6,
+            resolvedIPs: resolved
+        )
     }
 
     private func makeNetworkSettings(serverIP: String?, plan: SplitRoutePlan) -> NEPacketTunnelNetworkSettings {
@@ -264,6 +276,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         settings.ipv4Settings = ipv4
 
+        // IPv6: в режимах с маршрутом по умолчанию весь v6 идет в туннель. Ядро отвечает на неподдерживаемые
+        // v6-пакеты локально (RST / ICMPv6), поэтому приложения быстро переходят на IPv4.
+        let ipv6 = NEIPv6Settings(addresses: ["fd00:8::2"], networkPrefixLengths: [NSNumber(value: 64)])
+        if plan.useDefaultRoute {
+            ipv6.includedRoutes = [NEIPv6Route.default()]
+            ipv6.excludedRoutes = plan.excludedRoutes6.map {
+                NEIPv6Route(destinationAddress: $0.addressString, networkPrefixLength: NSNumber(value: $0.prefix))
+            }
+        } else {
+            ipv6.includedRoutes = plan.includedRoutes6.map {
+                NEIPv6Route(destinationAddress: $0.addressString, networkPrefixLength: NSNumber(value: $0.prefix))
+            }
+        }
+        settings.ipv6Settings = ipv6
+
         let dns = NEDNSSettings(servers: SplitRouteBuilder.tunnelDNSServers)
         dns.matchDomains = plan.matchDomains
         settings.dnsSettings = dns
@@ -280,7 +307,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        let plan = makeSplitPlan(config: config, serverIP: splitServerIP)
+        let plan = makeSplitPlan(config: config, serverIP: splitServerIP, serverIPv6: splitServerIPv6)
         if !force && plan.signature == appliedSplitSignature {
             completion(true)
             return
@@ -332,7 +359,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .include: modeName = "только выбранное через VPN"
         case .exclude: modeName = "всё, кроме выбранного"
         }
-        var text = "\(modeName), маршрутов: \(plan.routeCount), доменов: \(config.rules.domains.count)"
+        var text = "\(modeName), маршрутов v4: \(plan.routeCount), v6: \(plan.routeCount6), доменов: \(config.rules.domains.count)"
         if plan.truncated {
             text += ", список обрезан до \(SplitRouteBuilder.maxRoutes)"
         }
