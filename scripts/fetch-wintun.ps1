@@ -21,7 +21,7 @@ function Get-Sha256([string]$Path) {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
-$dest = [IO.Path]::GetFullPath($Destination)
+$dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
 if ((Test-Path -LiteralPath $dest) -and ((Get-Sha256 $dest) -eq $DllSha256)) {
     Write-Host "wintun.dll already present and verified: $dest"
     exit 0
