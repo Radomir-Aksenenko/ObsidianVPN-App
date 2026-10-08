@@ -1,0 +1,459 @@
+name: App
+
+# Flutter app in app/ (Android, iOS, macOS, Linux, Windows) with the Go core in core/.
+# check:   pub get, gen-l10n, strict analyze (any info, warning or error fails), flutter test.
+# assets:  scripts/build-core-assets.sh, shared as the core-assets artifact (app/assets/bin).
+# android: gomobile AAR, release APKs per ABI and an AAB (debug signing for now).
+# ios:     gomobile xcframework, PacketTunnel target patch, unsigned IPA.
+# macos:   universal darwin client, .app zipped with ditto.   linux: tar.gz.   windows: zip.
+# Every platform job needs "assets".
+
+on:
+  push:
+    branches:
+      - feat/flutter-app
+      - main
+    paths:
+      - "app/**"
+      - "core"
+      - "scripts/**"
+      - ".github/workflows/app.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "core"
+      - "scripts/**"
+      - ".github/workflows/app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.44.8"
+  NDK_VERSION: "27.2.12479018"
+
+jobs:
+  check:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Analyze (fails on infos, warnings and errors)
+        working-directory: app
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+  assets:
+    name: Core assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Build desktop clients and Linux servers
+        run: bash scripts/build-core-assets.sh
+
+      - name: Show assets
+        run: ls -l app/assets/bin
+
+      - name: Upload core assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin/*
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Android
+    needs: assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install pinned NDK
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;${NDK_VERSION}" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install gomobile and gobind
+        working-directory: core
+        run: |
+          set -euo pipefail
+          # Pin to the golang.org/x/mobile version already required by core/go.mod.
+          MOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install "golang.org/x/mobile/cmd/gobind@${MOBILE_VERSION}"
+          go install "golang.org/x/mobile/cmd/gomobile@${MOBILE_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+
+      - name: Bind Go core to AAR
+        working-directory: core
+        run: |
+          set -euo pipefail
+          mkdir -p ../app/android/app/libs
+          gomobile bind \
+            -target=android \
+            -androidapi 24 \
+            -javapkg=com.obsidian.core \
+            -o ../app/android/app/libs/obsidian.aar \
+            ./pkg/mobile
+
+      - name: Download core assets
+        uses: actions/download-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Build release APKs (per ABI)
+        working-directory: app
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build release App Bundle
+        working-directory: app
+        run: flutter build appbundle --release
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            app/build/app/outputs/flutter-apk/*.apk
+            app/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS
+    needs: assets
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install gomobile and gobind
+        working-directory: core
+        run: |
+          set -euo pipefail
+          # Pin to the golang.org/x/mobile version already required by core/go.mod.
+          MOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install "golang.org/x/mobile/cmd/gobind@${MOBILE_VERSION}"
+          go install "golang.org/x/mobile/cmd/gomobile@${MOBILE_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+
+      - name: Bind Go core to XCFramework
+        working-directory: core
+        run: |
+          set -euo pipefail
+          mkdir -p ../app/ios/Frameworks
+          gomobile bind \
+            -target=ios,iossimulator \
+            -o ../app/ios/Frameworks/Obsidian.xcframework \
+            ./pkg/mobile
+
+      - name: Download core assets
+        uses: actions/download-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Add PacketTunnel target to Xcode project
+        run: |
+          set -euo pipefail
+          gem install xcodeproj --no-document
+          ruby app/scripts/ios_add_packet_tunnel.rb
+
+      - name: Build unsigned iOS app
+        working-directory: app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          PAYLOAD="$RUNNER_TEMP/Payload"
+          rm -rf "$PAYLOAD"
+          mkdir -p "$PAYLOAD" dist
+          cp -R app/build/ios/iphoneos/Runner.app "$PAYLOAD/"
+          (cd "$RUNNER_TEMP" && zip -qry "$GITHUB_WORKSPACE/dist/obsidian-unsigned.ipa" Payload)
+          ls -l dist
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/obsidian-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: macOS
+    needs: assets
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Download core assets
+        uses: actions/download-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin
+
+      - name: Build darwin universal client if missing
+        run: |
+          set -euo pipefail
+          # The assets job runs on Linux, where lipo is absent, so the universal binary
+          # is normally missing. Rebuild the assets here, where lipo exists.
+          if [ ! -f app/assets/bin/obsidian-client-darwin-universal ]; then
+            bash scripts/build-core-assets.sh
+          fi
+          test -f app/assets/bin/obsidian-client-darwin-universal
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Build release macOS app
+        working-directory: app
+        run: flutter build macos --release
+
+      - name: Zip .app
+        run: |
+          set -euo pipefail
+          APP=$(find app/build/macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -n 1)
+          test -n "$APP"
+          mkdir -p dist
+          ditto -c -k --keepParent "$APP" dist/obsidian-macos.zip
+          ls -l dist
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/obsidian-macos.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux
+    needs: assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev
+
+      - name: Download core assets
+        uses: actions/download-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Build release Linux bundle
+        working-directory: app
+        run: flutter build linux --release
+
+      - name: Package tar.gz
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -C app/build/linux/x64/release/bundle -czf dist/obsidian-linux-x64.tar.gz .
+          ls -l dist
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/obsidian-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows
+    needs: assets
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Download core assets
+        uses: actions/download-artifact@v4
+        with:
+          name: core-assets
+          path: app/assets/bin
+
+      - name: Fetch packages and generate l10n
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Build release Windows app
+        working-directory: app
+        run: flutter build windows --release
+
+      - name: Zip Release folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path 'app/build/windows/x64/runner/Release/*' -DestinationPath 'dist/obsidian-windows-x64.zip' -Force
+          Get-ChildItem dist
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/obsidian-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14

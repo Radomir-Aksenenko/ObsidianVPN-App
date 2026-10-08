@@ -1,0 +1,10 @@
+{
+  "@@locale": "en",
+  "appTitle": "Obsidian",
+  "navHome": "Home",
+  "navServers": "Servers",
+  "navAccess": "Access",
+  "navSettings": "Settings",
+  "windowMinimize": "Minimize",
+  "windowClose": "Close"
+}

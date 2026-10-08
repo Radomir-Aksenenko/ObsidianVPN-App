@@ -1,0 +1,10 @@
+{
+  "@@locale": "ru",
+  "appTitle": "Obsidian",
+  "navHome": "Главная",
+  "navServers": "Серверы",
+  "navAccess": "Доступ",
+  "navSettings": "Настройки",
+  "windowMinimize": "Свернуть",
+  "windowClose": "Закрыть"
+}
