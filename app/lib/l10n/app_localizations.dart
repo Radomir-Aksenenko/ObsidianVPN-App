@@ -139,6 +139,210 @@ abstract class AppLocalizations {
   /// In ru, this message translates to:
   /// **'Закрыть'**
   String get windowClose;
+
+  /// No description provided for @homeWordmark.
+  ///
+  /// In ru, this message translates to:
+  /// **'obsidian'**
+  String get homeWordmark;
+
+  /// No description provided for @homeStatusDisconnected.
+  ///
+  /// In ru, this message translates to:
+  /// **'ОТКЛЮЧЕНО'**
+  String get homeStatusDisconnected;
+
+  /// No description provided for @homeStatusConnecting.
+  ///
+  /// In ru, this message translates to:
+  /// **'ПОДКЛЮЧЕНИЕ {stage}/4'**
+  String homeStatusConnecting(int stage);
+
+  /// No description provided for @homeStatusConnected.
+  ///
+  /// In ru, this message translates to:
+  /// **'ЗАЩИЩЕНО'**
+  String get homeStatusConnected;
+
+  /// No description provided for @homeStatusReconnecting.
+  ///
+  /// In ru, this message translates to:
+  /// **'ПЕРЕПОДКЛЮЧЕНИЕ'**
+  String get homeStatusReconnecting;
+
+  /// No description provided for @homeStatusDisconnecting.
+  ///
+  /// In ru, this message translates to:
+  /// **'ОТКЛЮЧЕНИЕ'**
+  String get homeStatusDisconnecting;
+
+  /// No description provided for @homeStatusError.
+  ///
+  /// In ru, this message translates to:
+  /// **'ОШИБКА'**
+  String get homeStatusError;
+
+  /// No description provided for @homeActionConnect.
+  ///
+  /// In ru, this message translates to:
+  /// **'Подключить'**
+  String get homeActionConnect;
+
+  /// No description provided for @homeActionCancel.
+  ///
+  /// In ru, this message translates to:
+  /// **'Отмена'**
+  String get homeActionCancel;
+
+  /// No description provided for @homeActionDisconnect.
+  ///
+  /// In ru, this message translates to:
+  /// **'Отключить'**
+  String get homeActionDisconnect;
+
+  /// No description provided for @homeActionRetry.
+  ///
+  /// In ru, this message translates to:
+  /// **'Повторить'**
+  String get homeActionRetry;
+
+  /// No description provided for @homeActionDisconnecting.
+  ///
+  /// In ru, this message translates to:
+  /// **'Отключаем'**
+  String get homeActionDisconnecting;
+
+  /// No description provided for @homeLogs.
+  ///
+  /// In ru, this message translates to:
+  /// **'Журнал'**
+  String get homeLogs;
+
+  /// No description provided for @logsTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Журнал'**
+  String get logsTitle;
+
+  /// No description provided for @logsCopyAll.
+  ///
+  /// In ru, this message translates to:
+  /// **'Скопировать всё'**
+  String get logsCopyAll;
+
+  /// No description provided for @logsCopied.
+  ///
+  /// In ru, this message translates to:
+  /// **'Журнал скопирован'**
+  String get logsCopied;
+
+  /// No description provided for @logsEmpty.
+  ///
+  /// In ru, this message translates to:
+  /// **'Записей пока нет'**
+  String get logsEmpty;
+
+  /// No description provided for @homeServerPickerTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Сервер'**
+  String get homeServerPickerTitle;
+
+  /// No description provided for @homeNoServers.
+  ///
+  /// In ru, this message translates to:
+  /// **'Добавь первый сервер: вставь ключ доступа.'**
+  String get homeNoServers;
+
+  /// No description provided for @homeAddServer.
+  ///
+  /// In ru, this message translates to:
+  /// **'Добавить сервер'**
+  String get homeAddServer;
+
+  /// No description provided for @homeSplitTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Раздельный туннель'**
+  String get homeSplitTitle;
+
+  /// No description provided for @trafficDownload.
+  ///
+  /// In ru, this message translates to:
+  /// **'Загрузка'**
+  String get trafficDownload;
+
+  /// No description provided for @trafficUpload.
+  ///
+  /// In ru, this message translates to:
+  /// **'Отдача'**
+  String get trafficUpload;
+
+  /// No description provided for @trafficTotal.
+  ///
+  /// In ru, this message translates to:
+  /// **'Всего {value}'**
+  String trafficTotal(String value);
+
+  /// No description provided for @unitKbps.
+  ///
+  /// In ru, this message translates to:
+  /// **'Кбит/с'**
+  String get unitKbps;
+
+  /// No description provided for @unitMbps.
+  ///
+  /// In ru, this message translates to:
+  /// **'Мбит/с'**
+  String get unitMbps;
+
+  /// No description provided for @unitGbps.
+  ///
+  /// In ru, this message translates to:
+  /// **'Гбит/с'**
+  String get unitGbps;
+
+  /// No description provided for @unitByte.
+  ///
+  /// In ru, this message translates to:
+  /// **'Б'**
+  String get unitByte;
+
+  /// No description provided for @unitKilobyte.
+  ///
+  /// In ru, this message translates to:
+  /// **'КБ'**
+  String get unitKilobyte;
+
+  /// No description provided for @unitMegabyte.
+  ///
+  /// In ru, this message translates to:
+  /// **'МБ'**
+  String get unitMegabyte;
+
+  /// No description provided for @unitGigabyte.
+  ///
+  /// In ru, this message translates to:
+  /// **'ГБ'**
+  String get unitGigabyte;
+
+  /// No description provided for @pingMs.
+  ///
+  /// In ru, this message translates to:
+  /// **'{ms} мс'**
+  String pingMs(int ms);
+
+  /// No description provided for @pingNoReply.
+  ///
+  /// In ru, this message translates to:
+  /// **'нет ответа'**
+  String get pingNoReply;
+
+  /// No description provided for @sheetClose.
+  ///
+  /// In ru, this message translates to:
+  /// **'Закрыть'**
+  String get sheetClose;
 }
 
 class _AppLocalizationsDelegate

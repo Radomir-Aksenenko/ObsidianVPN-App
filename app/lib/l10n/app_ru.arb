@@ -6,5 +6,60 @@
   "navAccess": "Доступ",
   "navSettings": "Настройки",
   "windowMinimize": "Свернуть",
-  "windowClose": "Закрыть"
+  "windowClose": "Закрыть",
+  "homeWordmark": "obsidian",
+  "homeStatusDisconnected": "ОТКЛЮЧЕНО",
+  "homeStatusConnecting": "ПОДКЛЮЧЕНИЕ {stage}/4",
+  "@homeStatusConnecting": {
+    "placeholders": {
+      "stage": {
+        "type": "int"
+      }
+    }
+  },
+  "homeStatusConnected": "ЗАЩИЩЕНО",
+  "homeStatusReconnecting": "ПЕРЕПОДКЛЮЧЕНИЕ",
+  "homeStatusDisconnecting": "ОТКЛЮЧЕНИЕ",
+  "homeStatusError": "ОШИБКА",
+  "homeActionConnect": "Подключить",
+  "homeActionCancel": "Отмена",
+  "homeActionDisconnect": "Отключить",
+  "homeActionRetry": "Повторить",
+  "homeActionDisconnecting": "Отключаем",
+  "homeLogs": "Журнал",
+  "logsTitle": "Журнал",
+  "logsCopyAll": "Скопировать всё",
+  "logsCopied": "Журнал скопирован",
+  "logsEmpty": "Записей пока нет",
+  "homeServerPickerTitle": "Сервер",
+  "homeNoServers": "Добавь первый сервер: вставь ключ доступа.",
+  "homeAddServer": "Добавить сервер",
+  "homeSplitTitle": "Раздельный туннель",
+  "trafficDownload": "Загрузка",
+  "trafficUpload": "Отдача",
+  "trafficTotal": "Всего {value}",
+  "@trafficTotal": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "unitKbps": "Кбит/с",
+  "unitMbps": "Мбит/с",
+  "unitGbps": "Гбит/с",
+  "unitByte": "Б",
+  "unitKilobyte": "КБ",
+  "unitMegabyte": "МБ",
+  "unitGigabyte": "ГБ",
+  "pingMs": "{ms} мс",
+  "@pingMs": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "pingNoReply": "нет ответа",
+  "sheetClose": "Закрыть"
 }
