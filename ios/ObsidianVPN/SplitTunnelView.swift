@@ -175,7 +175,7 @@ struct SplitTunnelView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Сайты переводятся в адреса при подключении и обновляются каждые 10 минут. CDN может менять адреса чаще, поэтому часть трафика иногда пойдет не тем путем.")
                 Text("Зоны вроде *.ru не поддерживаются: добавляйте сайты по одному. Кириллические домены пока не работают, используйте вариант xn--.")
-                Text("IPv6-адреса пока не маршрутизируются через туннель.")
+                Text("IPv6 тоже идет через туннель, если не выбран режим «Только список». Пока ядро не поддерживает IPv6, такие соединения сразу переходят на IPv4.")
             }
             .font(.system(.footnote, design: .rounded))
             .foregroundStyle(ObsidianTheme.tertiaryText)
@@ -266,6 +266,24 @@ struct SplitTunnelView: View {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.prepare()
         generator.impactOccurred()
+    }
+}
+
+/// Цель перехода из настроек и с главного экрана: открывает правила текущего сервера.
+/// Условие вынесено в body, чтобы не полагаться на if/else внутри замыканий NavigationLink и sheet.
+struct SplitTunnelSettingsDestination: View {
+    var showsDone = false
+
+    @EnvironmentObject private var profiles: ProfileStore
+
+    var body: some View {
+        if let profileID = profiles.selectedProfile?.id {
+            SplitTunnelView(profileID: profileID, showsDone: showsDone)
+        } else {
+            Text("Сначала добавьте сервер")
+                .font(.system(.body, design: .rounded))
+                .foregroundStyle(ObsidianTheme.secondaryText)
+        }
     }
 }
 

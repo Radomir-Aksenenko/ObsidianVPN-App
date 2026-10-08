@@ -47,13 +47,7 @@ struct SettingsView: View {
 
                     Section {
                         NavigationLink {
-                            if let profileID = profiles.selectedProfile?.id {
-                                SplitTunnelView(profileID: profileID)
-                            } else {
-                                Text("Сначала добавьте сервер")
-                                    .font(.system(.body, design: .rounded))
-                                    .foregroundStyle(ObsidianTheme.secondaryText)
-                            }
+                            SplitTunnelSettingsDestination()
                         } label: {
                             Label {
                                 VStack(alignment: .leading, spacing: 2) {

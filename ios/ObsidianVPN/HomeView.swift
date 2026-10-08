@@ -109,10 +109,8 @@ struct HomeView: View {
                 securityDetailsSheet
             }
             .sheet(isPresented: $showSplitTunnel) {
-                if let profileID = profiles.selectedProfile?.id {
-                    NavigationStack {
-                        SplitTunnelView(profileID: profileID, showsDone: true)
-                    }
+                NavigationStack {
+                    SplitTunnelSettingsDestination(showsDone: true)
                 }
             }
             .onAppear {
