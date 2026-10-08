@@ -64,8 +64,29 @@ class ChannelVpnBackend implements VpnBackend, KillSwitchCapable {
     _killSwitch = enabled;
   }
 
+  VpnStatus? _lastStatus;
+
+  /// Replays the latest native status to a new listener. The native side sends the
+  /// current status once, when the event channel is attached in the constructor,
+  /// which can be before anyone listens.
   @override
-  Stream<VpnStatus> get status => _statusController.stream;
+  Stream<VpnStatus> get status {
+    late final StreamController<VpnStatus> out;
+    StreamSubscription<VpnStatus>? sub;
+    out = StreamController<VpnStatus>(
+      onListen: () {
+        final last = _lastStatus;
+        if (last != null) out.add(last);
+        sub = _statusController.stream.listen(
+          out.add,
+          onError: out.addError,
+          onDone: out.close,
+        );
+      },
+      onCancel: () => sub?.cancel(),
+    );
+    return out.stream;
+  }
 
   @override
   Stream<TrafficStats> get stats => _statsController.stream;
@@ -138,7 +159,9 @@ class ChannelVpnBackend implements VpnBackend, KillSwitchCapable {
       ).then<void>(
         (_) {},
         onError: (Object error) {
-          _logController.add('setStatsActive: $error');
+          if (!_logController.isClosed) {
+            _logController.add('setStatsActive: $error');
+          }
         },
       ),
     );
@@ -156,21 +179,36 @@ class ChannelVpnBackend implements VpnBackend, KillSwitchCapable {
   // ---- events ----
 
   void _onEvent(Object? event) {
+    try {
+      _handleEvent(event);
+    } on Object catch (error) {
+      // A malformed event must not become an uncaught error in the stream zone.
+      if (!_logController.isClosed) _logController.add('Канал VPN: $error');
+    }
+  }
+
+  void _handleEvent(Object? event) {
     if (event is! Map<Object?, Object?>) return;
     final type = event['type'];
     if (type == 'status') {
       final status = _parseStatus(event);
-      if (status != null) _statusController.add(status);
+      if (status != null) {
+        _lastStatus = status;
+        if (!_statusController.isClosed) _statusController.add(status);
+      }
     } else if (type == 'stats') {
       // Native may still send a sample that was in flight when statsActive went false.
-      if (_statsActive) _statsController.add(_parseStats(event));
+      if (_statsActive && !_statsController.isClosed) {
+        _statsController.add(_parseStats(event));
+      }
     } else if (type == 'log') {
       final line = event['line'];
-      if (line is String) _logController.add(line);
+      if (line is String && !_logController.isClosed) _logController.add(line);
     }
   }
 
   void _onStreamError(Object error, StackTrace stackTrace) {
+    if (_logController.isClosed) return;
     _logController.add('Канал VPN: $error');
   }
 
@@ -210,7 +248,7 @@ class ChannelVpnBackend implements VpnBackend, KillSwitchCapable {
 
   int? _asInt(Object? value) => switch (value) {
     int v => v,
-    num v => v.toInt(),
+    num v when v.isFinite => v.toInt(),
     _ => null,
   };
 

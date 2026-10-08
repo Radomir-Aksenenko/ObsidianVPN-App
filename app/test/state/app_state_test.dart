@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:obsidian_vpn/core/codec/client_config.dart';
 import 'package:obsidian_vpn/core/codec/obsidian_key.dart';
 import 'package:obsidian_vpn/core/models/profile.dart';
 import 'package:obsidian_vpn/core/models/split_tunnel.dart';
@@ -69,6 +71,19 @@ void main() {
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
   group('profiles', () {
+    test('two addKey calls with the same key, not awaited in between, save one profile', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      final input = keyLegacyHost();
+
+      final first = state.addKey(input);
+      final second = state.addKey(input);
+      final results = await Future.wait([first, second]);
+
+      expect(state.profiles, hasLength(1));
+      expect(results[0].id, results[1].id);
+    });
+
     test('addKey saves the first profile, selects it, and keeps the key out of state.json', () async {
       final backend = FakeVpnBackend();
       final state = await open(backend: backend);
@@ -188,9 +203,31 @@ void main() {
       expect(sites.first, 'example.org');
       expect(sites, contains('10.0.0.0/8'));
       expect(sites, containsAll(SplitPreset.telegram.entries));
+      // This key carries its own client_key, which wins over a generated one.
+      expect(json['client_private_key'], 'c0ffee00112233445566778899aabbccddeeff00112233445566778899aabb11');
+      expect(
+        secrets.values.containsKey(SecretKeys.profile(profile.id, SecretKeys.clientPrivateKey)),
+        isFalse,
+      );
+    });
+
+    test('a key without client_key gets a generated keypair that is stored', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      final profile = await state.addKey(
+        'obsidian://3f8a1c9e0b7d4f2a6e5c8b1d9f0a2c4e6b8d1f3a5c7e9b0d2f4a6c8e1b3d5f7a@gen.example.net:443',
+      );
+
+      await state.connect();
+
+      final json = jsonDecode(backend.connects.single.configJson) as Map<String, dynamic>;
       expect(
         secrets.values[SecretKeys.profile(profile.id, SecretKeys.clientPrivateKey)],
         json['client_private_key'],
+      );
+      expect(
+        secrets.values[SecretKeys.profile(profile.id, SecretKeys.clientPublicKey)],
+        json['client_public_key'],
       );
     });
 
@@ -302,25 +339,68 @@ void main() {
   });
 
   group('status and logs', () {
-    test('clearLogs empties the log and notifies once', () async {
+    test('clearLogs empties the log and publishes it once, without notifying the app', () async {
       final backend = FakeVpnBackend();
       final state = await open(backend: backend);
       backend.emitLog('first');
       backend.emitLog('second');
       await settle();
-      var notified = 0;
-      state.addListener(() => notified++);
+      var appNotified = 0;
+      var published = 0;
+      state.addListener(() => appNotified++);
+      state.logsListenable.addListener(() => published++);
 
       state.clearLogs();
 
       expect(state.logs, isEmpty);
-      expect(notified, 1);
+      expect(state.logsListenable.value, isEmpty);
+      expect(published, 1);
       state.clearLogs();
-      expect(notified, 1);
+      expect(published, 1);
+      expect(appNotified, 0);
 
       backend.emitLog('after');
-      await settle();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(state.logs, ['after']);
+      expect(state.logsListenable.value, ['after']);
+      expect(appNotified, 0);
+    });
+
+    test('log bursts publish at most once per 250 ms and never notify the app', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      // Let the window since init pass, so the first line of the burst goes out at once.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      var appNotified = 0;
+      var published = 0;
+      state.addListener(() => appNotified++);
+      state.logsListenable.addListener(() => published++);
+
+      for (var i = 0; i < 50; i++) {
+        backend.emitLog('line $i');
+      }
+      expect(published, 1);
+      expect(state.logsListenable.value, ['line 0']);
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(published, 2);
+      expect(state.logsListenable.value, hasLength(50));
+      expect(state.logsListenable.value.last, 'line 49');
+      expect(appNotified, 0);
+    });
+
+    test('an unchanged status does not notify the app', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      backend.emitStatus(const VpnStatus(phase: VpnPhase.connecting, stage: 2));
+      var notified = 0;
+      state.addListener(() => notified++);
+
+      backend.emitStatus(const VpnStatus(phase: VpnPhase.connecting, stage: 2));
+      expect(notified, 0);
+
+      backend.emitStatus(const VpnStatus(phase: VpnPhase.connecting, stage: 3));
+      expect(notified, 1);
     });
 
     test('status and stats propagate; the connected profile follows the phase', () async {
@@ -493,7 +573,7 @@ void main() {
     });
   });
 
-  testWidgets('lifecycle toggles statsActive and stops when not resumed', (tester) async {
+  testWidgets('lifecycle keeps statsActive while inactive and stops when hidden', (tester) async {
     final backend = FakeVpnBackend();
     final state = AppState(
       store: AppStore.memory(secrets: secrets),
@@ -509,6 +589,91 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
 
-    expect(backend.statsActiveHistory, [true, false, true, false, false]);
+    // inactive (focus lost, system dialog) is still on screen, only hidden is background.
+    expect(backend.statsActiveHistory, [true, true, true, true, false]);
+  });
+
+  group('review fixes', () {
+    const embeddedPrivate =
+        '77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a';
+    const embeddedPublic =
+        '8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a';
+
+    test('a client key embedded in the server key is used instead of a generated one', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      final link = encodeUri(
+        const ClientConfig(
+          serverHost: 'embed.example.net',
+          serverPort: '443',
+          serverPublicKey:
+              '3f8a1c9e0b7d4f2a6e5c8b1d9f0a2c4e6b8d1f3a5c7e9b0d2f4a6c8e1b3d5f7a',
+          clientPrivateKey: embeddedPrivate,
+        ),
+      );
+      final profile = await state.addKey(link);
+
+      await state.connect();
+
+      final json = jsonDecode(backend.connects.single.configJson) as Map<String, dynamic>;
+      expect(json['client_private_key'], embeddedPrivate);
+      expect(json['client_public_key'], embeddedPublic);
+      expect(
+        secrets.values.containsKey(
+          SecretKeys.profile(profile.id, SecretKeys.clientPrivateKey),
+        ),
+        isFalse,
+      );
+    });
+
+    test('disconnect waits for a connect that has not reached the backend yet', () async {
+      final backend = FakeVpnBackend();
+      final gate = Completer<bool>();
+      final state = await open(
+        backend: backend,
+        platform: AppPlatformHooks(
+          isDesktop: false,
+          isWindows: true,
+          isElevated: () async {
+            await gate.future;
+            backend.emitStatus(const VpnStatus(phase: VpnPhase.connecting));
+            return true;
+          },
+          relaunchElevated: (_) async {},
+          setAutostart: (_) async {},
+        ),
+      );
+      await state.addKey(keyLegacyHost());
+
+      final connecting = state.connect();
+      await settle();
+      expect(state.vpnStatus.phase, VpnPhase.disconnected);
+      final disconnecting = state.disconnect();
+      await settle();
+      expect(backend.disconnectCalls, 0);
+
+      gate.complete(true);
+      await connecting;
+      await disconnecting;
+
+      expect(backend.connects, hasLength(1));
+      expect(backend.disconnectCalls, 1);
+    });
+
+    test('the connected profile survives a split reapply that passes through disconnected', () async {
+      final backend = FakeVpnBackend();
+      final state = await open(backend: backend);
+      final first = await state.addKey(keyLegacyHost());
+      final second = await state.addKey(keyOtherHost());
+      await state.connect();
+      backend.emitStatus(const VpnStatus(phase: VpnPhase.connected, stage: 4));
+      expect(state.connectedProfile?.id, first.id);
+
+      await state.selectProfile(second.id);
+      backend.emitStatus(const VpnStatus());
+      backend.emitStatus(const VpnStatus(phase: VpnPhase.connecting));
+
+      expect(state.connectedProfile?.id, first.id);
+    });
   });
 }

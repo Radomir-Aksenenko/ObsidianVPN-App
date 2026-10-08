@@ -3,7 +3,7 @@ name: App
 # Flutter app in app/ (Android, iOS, macOS, Linux, Windows) with the Go core in core/.
 # check:   pub get, gen-l10n, strict analyze (any info, warning or error fails), flutter test.
 # assets:  scripts/build-core-assets.sh, shared as the core-assets artifact (app/assets/bin).
-# android: gomobile AAR, release APKs per ABI and an AAB (debug signing for now).
+# android: gomobile AAR, release APKs per ABI and an AAB (release signing uses the keystore secrets when present, otherwise debug).
 # ios:     gomobile xcframework, PacketTunnel target patch, unsigned IPA.
 # macos:   universal darwin client, .app zipped with ditto.   linux: tar.gz.   windows: zip.
 # Every platform job needs "assets".
@@ -35,7 +35,8 @@ concurrency:
 
 env:
   FLUTTER_VERSION: "3.44.8"
-  NDK_VERSION: "27.2.12479018"
+  # r28 or newer defaults to 16 KB max page size, which Play needs for targetSdk 35+ on new devices.
+  NDK_VERSION: "28.2.13676358"
 
 jobs:
   check:
@@ -108,6 +109,16 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Free disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h /
+          # Preinstalled toolchains the Android build does not use. /usr/local/lib/android (SDK/NDK) is kept.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium "$AGENT_TOOLSDIRECTORY/CodeQL"
+          sudo docker image prune --all --force || true
+          echo "Disk usage after cleanup:"
+          df -h /
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -160,6 +171,7 @@ jobs:
           gomobile bind \
             -target=android \
             -androidapi 24 \
+            -ldflags="-extldflags=-Wl,-z,max-page-size=16384" \
             -javapkg=com.obsidian.core \
             -o ../app/android/app/libs/obsidian.aar \
             ./pkg/mobile
@@ -176,12 +188,38 @@ jobs:
           flutter pub get
           flutter gen-l10n
 
+      - name: Decode release keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # Empty secret: no path is output, so Gradle keeps the debug signing key.
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not set: release builds use debug signing."
+            exit 0
+          fi
+          KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Build release APKs (per ABI)
         working-directory: app
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release --split-per-abi
 
       - name: Build release App Bundle
         working-directory: app
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: flutter build appbundle --release
 
       - name: Upload Android artifact

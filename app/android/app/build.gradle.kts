@@ -4,6 +4,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Release signing comes from the environment (CI writes the keystore from a secret). When any value
+// is missing, the release build falls back to the debug key, so local builds keep working.
+val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH").orEmpty()
+val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() }
+
 android {
     namespace = "com.obsidian.vpn"
     compileSdk = flutter.compileSdkVersion
@@ -25,11 +38,34 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Release key from the environment when set, debug key otherwise (see the top of this file).
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Store the Go and Flutter .so files uncompressed and page-aligned in the APK/AAB
+            // (16 KB pages). Legacy packaging would extract them and break that alignment.
+            useLegacyPackaging = false
         }
     }
 }

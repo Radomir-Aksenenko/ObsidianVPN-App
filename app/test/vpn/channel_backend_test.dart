@@ -397,4 +397,40 @@ void main() {
       expect(await done, isEmpty);
     });
   });
+
+  group('review fixes', () {
+    test('a status that arrived before anyone listened is replayed', () async {
+      final backend = await createBackend();
+      emit(<String, Object?>{
+        'type': 'status',
+        'phase': 'connected',
+        'stage': 4,
+        'connectedAtMs': 1000,
+      });
+      await _settle();
+
+      final first = await backend.status.first;
+
+      expect(first.phase, VpnPhase.connected);
+    });
+
+    test('a non-finite number in an event does not escape as an uncaught error', () async {
+      final backend = await createBackend();
+      await backend.setKillSwitch(false);
+      backend.statsActive = true;
+      await _settle();
+      final stats = <TrafficStats>[];
+      final sub = backend.stats.listen(stats.add);
+      final logs = backend.logs.first;
+
+      emit(<String, Object?>{'type': 'stats', 'rx': double.nan, 'tx': double.infinity, 'rxBps': 1, 'txBps': 2});
+      emit(<String, Object?>{'type': 'status', 'phase': 'connected', 'stage': double.nan});
+      emit(<String, Object?>{'type': 'log', 'line': 'still alive'});
+      await _settle();
+
+      expect(await logs, 'still alive');
+      expect(stats.single.rxBytes, 0);
+      await sub.cancel();
+    });
+  });
 }

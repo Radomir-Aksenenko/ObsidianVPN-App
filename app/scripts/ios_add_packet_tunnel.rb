@@ -67,6 +67,12 @@ end
 ensure_file_ref(ext_group, 'Info.plist')
 ensure_file_ref(ext_group, 'PacketTunnel.entitlements')
 
+XCCONFIG_NAME = 'PacketTunnel.xcconfig'
+xcconfig_path = File.join(IOS_DIR, EXT_NAME, XCCONFIG_NAME)
+xcconfig_text = "#include \"../Flutter/Generated.xcconfig\"\n"
+File.write(xcconfig_path, xcconfig_text) unless File.exist?(xcconfig_path) && File.read(xcconfig_path) == xcconfig_text
+xcconfig_ref = ensure_file_ref(ext_group, XCCONFIG_NAME)
+
 runner_configs = runner.build_configurations.each_with_object({}) { |c, h| h[c.name] = c }
 
 ext.build_configurations.each do |config|
@@ -89,8 +95,10 @@ ext.build_configurations.each do |config|
   runner_config = runner_configs[config.name]
   next unless runner_config
 
-  # Same Flutter xcconfig as Runner: gives the Info.plist FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER.
-  config.base_configuration_reference = runner_config.base_configuration_reference
+  # Gives the Info.plist FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER, so the extension version always equals
+  # Runner's (App Store validation requires it). Runner's own xcconfig is not reused on purpose: with CocoaPods
+  # it also pulls in the plugin pods' linker flags, which must not reach the 15 MB extension.
+  config.base_configuration_reference = xcconfig_ref
   team = runner_config.build_settings['DEVELOPMENT_TEAM']
   settings['DEVELOPMENT_TEAM'] = team if team
 end

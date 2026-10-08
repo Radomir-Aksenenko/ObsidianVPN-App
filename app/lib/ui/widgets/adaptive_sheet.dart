@@ -62,14 +62,17 @@ class ObsSheet extends StatelessWidget {
     final c = context.obs.colors;
     final wide = MediaQuery.sizeOf(context).width >= kAdaptiveSheetBreakpoint;
     final l10n = AppLocalizations.of(context);
+    // A bottom sheet does not move above the keyboard by itself. A dialog (wide
+    // layout) already does.
+    final keyboard = wide ? 0.0 : MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(
+        padding: EdgeInsets.fromLTRB(
           Space.s20,
           Space.s12,
           Space.s20,
-          Space.s20,
+          Space.s20 + keyboard,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -112,7 +115,9 @@ class ObsSheet extends StatelessWidget {
                   ],
                 ),
               ),
-            Flexible(child: child),
+            // Scrolls when the content is taller than the screen (keyboard open, large
+            // text, small window) instead of overflowing.
+            Flexible(child: SingleChildScrollView(child: child)),
           ],
         ),
       ),

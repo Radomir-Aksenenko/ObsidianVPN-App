@@ -10,6 +10,9 @@ const int kSafeMtu = 1420;
 const int kMinKeyDevices = 1;
 const int kMaxKeyDevices = 20;
 
+/// Longest key name. The name is part of the key and its QR code, which must stay scannable.
+const int kMaxKeyNameLength = 40;
+
 /// A key issued for one client of our own server.
 class IssuedKey {
   const IssuedKey({
@@ -90,7 +93,7 @@ IssuedKey issueKey({
 
   final created = (now ?? DateTime.now()).toUtc();
   final expires = days == 0 ? '' : _isoDate(created.add(Duration(days: days)));
-  final trimmedName = name.trim();
+  final trimmedName = String.fromCharCodes(name.trim().runes.take(kMaxKeyNameLength)).trim();
   final label = trimmedName.isEmpty ? 'Guest' : trimmedName;
   final realityOn =
       serverConfig.realityEnabled || serverConfig.realityAuthKey.isNotEmpty;

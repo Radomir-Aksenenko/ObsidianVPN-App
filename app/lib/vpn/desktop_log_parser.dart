@@ -97,6 +97,12 @@ String humanizeExit(List<String> lastLines) {
       .lastWhere((l) => l.trim().isNotEmpty, orElse: () => '')
       .trim();
 
+  // pkexec on Linux: the password dialog was dismissed or authorization failed.
+  if (lower.contains('error executing command as another user') ||
+      lower.contains('request dismissed') ||
+      lower.contains('not authorized')) {
+    return 'Нужны права администратора для запуска клиента. Подтвердите запрос пароля.';
+  }
   if (lower.contains('access is denied') || lower.contains('administrator')) {
     return 'Для работы Wintun требуются права Администратора.';
   }

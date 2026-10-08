@@ -37,12 +37,16 @@ Future<void> pumpVps(
 
 /// Deployer that replays fixed events instead of talking to SSH.
 class FakeDeployer extends VpsDeployer {
-  FakeDeployer({this.deployEvents = const <DeployEvent>[]});
+  FakeDeployer({this.deployEvents = const <DeployEvent>[], this.deployStream});
 
   final List<DeployEvent> deployEvents;
 
+  /// Replaces [deployEvents] when set (errors, streams that never end).
+  final Stream<DeployEvent> Function()? deployStream;
+
   @override
-  Stream<DeployEvent> deploy(DeployRequest request) => Stream.fromIterable(deployEvents);
+  Stream<DeployEvent> deploy(DeployRequest request) =>
+      deployStream?.call() ?? Stream.fromIterable(deployEvents);
 }
 
 /// A deploy result with a real OBSDN owner key for [host].

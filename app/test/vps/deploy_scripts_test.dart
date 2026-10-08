@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:obsidian_vpn/vps/deploy_scripts.dart';
+import 'package:obsidian_vpn/vps/ssh_session.dart' show shellQuote, streamUploadCommand;
 import 'package:obsidian_vpn/vps/vps_models.dart';
 
 const String _nginxTcp443 =
@@ -64,6 +65,14 @@ void main() {
         parseSsListing(line, '443'),
         const PortOwner.foreign('неизвестный процесс'),
       );
+    });
+
+    test('ss output with a Netid column is read from the 5th column', () {
+      const withNetid =
+          'tcp LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1,fd=6))';
+      expect(parseSsListing(withNetid, '443'), const PortOwner.foreign('nginx'));
+      expect(parseSsListing(withNetid, '511'), const PortOwner.free());
+      expect(parseSsListing(withNetid, '0'), const PortOwner.free());
     });
 
     test('empty listing means free', () {
@@ -537,6 +546,20 @@ void main() {
     test('an empty PEM means password auth', () {
       const creds = VpsCredentials(host: 'h', privateKeyPem: '   ');
       expect(creds.usesKey, isFalse);
+    });
+  });
+
+  group('shell quoting', () {
+    test('single quotes are closed, escaped and reopened', () {
+      expect(shellQuote('/opt/obsidian'), "'/opt/obsidian'");
+      expect(shellQuote("a'b"), r"'a'\''b'");
+      expect(shellQuote("'; rm -rf / #"), r"''\''; rm -rf / #'");
+    });
+
+    test('exec upload keeps the temp file private and quotes every path', () {
+      final cmd = streamUploadCommand('/tmp/x', "/opt/o'b/f");
+      expect(cmd, startsWith('umask 077;'));
+      expect(cmd, contains(r"'/opt/o'\''b/f'"));
     });
   });
 }

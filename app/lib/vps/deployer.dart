@@ -57,13 +57,16 @@ class VpsDeployer {
     Random? random,
     this.bundledVersion = kBundledServerVersion,
     SessionOpener? openSession,
+    Future<void> Function(Duration)? delay,
   })  : _assets = assets ?? const BundleAssetSource(),
         _random = random ?? Random.secure(),
-        _open = openSession ?? SshSession.connect;
+        _open = openSession ?? SshSession.connect,
+        _delay = delay ?? Future<void>.delayed;
 
   final AssetSource _assets;
   final Random _random;
   final SessionOpener _open;
+  final Future<void> Function(Duration) _delay;
 
   /// Called for a server that has no pinned host key yet.
   final HostKeyObserver? onNewHostKey;
@@ -104,6 +107,9 @@ class VpsDeployer {
     final controller = StreamController<DeployEvent>();
     controller.onListen = () {
       final op = _Op(controller);
+      // Cancelling the subscription stops the operation at its next remote step. The
+      // operation then undoes what it did (deploy) before the session is closed.
+      controller.onCancel = op.cancel;
       unawaited(_drive(op, body));
     };
     return controller.stream;
@@ -129,6 +135,7 @@ class VpsDeployer {
     final sni = normalizeSni(req.sni);
     final creds = req.creds;
     final session = await _connect(op, creds);
+    await _requireRoot(op);
     final arch = await _detectArch(op);
     final serverBin = await _loadServerBinary(arch);
     final keyserver = await _loadKeyserver();
@@ -137,12 +144,31 @@ class VpsDeployer {
     }
     op.progress(12, 'Проверка сервера');
 
+    // A second deploy would replace the server keys and cut off every issued key.
+    final installed = await op.run(kInstallExistsCmd, check: false);
+    if (installed.contains('OK')) {
+      throw const VpsException(
+        'На этом сервере уже установлен Obsidian. Повторная установка заменила бы '
+        'ключи сервера и отключила все выданные ключи. Обновите или обнулите сервер '
+        'в разделе управления. Чтобы начать с чистого листа, удалите каталог '
+        '$kServerDir на сервере вручную.',
+      );
+    }
+    final dirExisted =
+        (await op.run(kServerDirExistsCmd, check: false)).contains('EXISTS');
+
     op.progress(20, 'Установка Docker');
     final docker = await op.run(kDockerVersionCmd, check: false);
     if (docker.contains('MISSING')) {
       for (final cmd in kDockerInstallCmds) {
         await op.run(cmd, timeout: const Duration(minutes: 15));
       }
+    }
+    await op.run(kDockerReadyCmd, check: false, quiet: true);
+    if (!await _dockerAnswers(op)) {
+      throw const VpsException(
+        'Docker установлен, но не отвечает. Проверьте службу docker на сервере и повторите.',
+      );
     }
 
     op.progress(28, 'Настройка сети');
@@ -159,51 +185,63 @@ class VpsDeployer {
     final (privHex, pubHex) = await generateClientKeypair();
     final realityAuth = _randomHex(32);
     final adminToken = _randomHex(24);
-    await op.upload(serverBin, kServerBin, mode: 0x1ed);
     final binHash = await _sha256Hex(serverBin);
+
+    // From here the server is modified. Any failure or cancel undoes it.
     try {
-      await op.upload(
-        utf8.encode(versionFileContent(bundledVersion, binHash)),
-        kVersionFile,
+      await op.upload(serverBin, kServerBin, mode: 0x1ed);
+      try {
+        await op.upload(
+          utf8.encode(versionFileContent(bundledVersion, binHash)),
+          kVersionFile,
+        );
+      } catch (e) {
+        if (op.cancelled) rethrow;
+        op.log('version.txt не записан: $e');
+      }
+      op.log('REALITY: маска $sni:443, TCP $tcp, UDP $udp');
+
+      final iface = await _iface(op);
+      final config = buildServerConfigJson(
+        sni: sni,
+        tcpPort: tcp,
+        udpPort: udp,
+        iface: iface,
+        enableIpv6: ipv6,
+        serverPrivateKeyHex: privHex,
+        serverPublicKeyHex: pubHex,
+        realityAuthKey: realityAuth,
       );
-    } catch (e) {
-      op.log('version.txt не записан: $e');
-    }
-    op.log('REALITY: маска $sni:443, TCP $tcp, UDP $udp');
+      op.progress(62, 'Запуск VPN-ядра');
+      // The config holds the server private key: owner-only.
+      await op.upload(utf8.encode(config), kServerConfig, mode: 0x180);
+      await op.run(removeContainerCmd(kVpnContainer), check: false);
+      await op.run(vpnDockerRunCmd(), timeout: kDockerRunTimeout);
+      await _pause(2);
+      if (!await _isRunning(op, kVpnContainer)) {
+        final logs = await op.run(dockerLogsCmd(kVpnContainer, 120), check: false);
+        throw VpsException('Контейнер VPN не запустился.\n$logs');
+      }
 
-    final iface = await _iface(op);
-    final config = buildServerConfigJson(
-      sni: sni,
-      tcpPort: tcp,
-      udpPort: udp,
-      iface: iface,
-      enableIpv6: ipv6,
-      serverPrivateKeyHex: privHex,
-      serverPublicKeyHex: pubHex,
-      realityAuthKey: realityAuth,
-    );
-    op.progress(62, 'Запуск VPN-ядра');
-    await op.upload(utf8.encode(config), kServerConfig);
-    await op.run(removeContainerCmd(kVpnContainer), check: false);
-    await op.run(vpnDockerRunCmd());
-    await _pause(2);
-    if (!await _isRunning(op, kVpnContainer)) {
-      final logs = await op.run(dockerLogsCmd(kVpnContainer, 120), check: false);
-      await _rollback(op);
-      throw VpsException('Контейнер VPN не запустился.\n$logs');
-    }
+      op.progress(78, 'Запуск сервера ключей');
+      await op.upload(keyserver, kKeyserverScript);
+      await op.run(removeContainerCmd(kKeyserverContainer), check: false);
+      await op.run(
+        keyserverDockerRunCmd(adminToken),
+        secret: true,
+        timeout: kDockerRunTimeout,
+      );
+      await _pause(2);
+      if (!await _isRunning(op, kKeyserverContainer)) {
+        op.log('Сервер ключей не запущен: проверьте логи контейнера $kKeyserverContainer.');
+      }
 
-    op.progress(78, 'Запуск сервера ключей');
-    await op.upload(keyserver, kKeyserverScript);
-    await op.run(removeContainerCmd(kKeyserverContainer), check: false);
-    await op.run(keyserverDockerRunCmd(adminToken), secret: true);
-    await _pause(2);
-    if (!await _isRunning(op, kKeyserverContainer)) {
-      op.log('Сервер ключей не запущен: проверьте логи контейнера $kKeyserverContainer.');
+      op.progress(90, 'Настройка firewall и NAT');
+      await _setupNat(op, iface, tcp, udp, ipv6);
+    } catch (_) {
+      await _rollback(op, dirExisted: dirExisted);
+      rethrow;
     }
-
-    op.progress(90, 'Настройка firewall и NAT');
-    await _setupNat(op, iface, tcp, udp, ipv6);
 
     final owner = _ownerKeyFor(
       _serverConfig(
@@ -276,7 +314,7 @@ class VpsDeployer {
       result = await _applyUpdate(op, serverBin, keyserver, plan);
     } catch (_) {
       op.log('Обновление не удалось, восстанавливаю предыдущее ядро и конфиг.');
-      await op.run(kRestoreCmd, check: false);
+      await op.run(kRestoreCmd, check: false, cleanup: true);
       rethrow;
     }
     op.progress(100, 'Готово');
@@ -616,11 +654,42 @@ class VpsDeployer {
     }
   }
 
-  Future<void> _rollback(_Op op) async {
-    op.log('Откат: удаление контейнеров и каталога $kServerDir.');
-    await op.run(removeContainerCmd(kVpnContainer), check: false);
-    await op.run(removeContainerCmd(kKeyserverContainer), check: false);
-    await op.run('rm -rf $kServerDir 2>/dev/null || true', check: false);
+  /// Undoes a failed deploy. Cleanup commands run even after a cancel. The install
+  /// directory is deleted only when this deploy created it.
+  Future<void> _rollback(_Op op, {required bool dirExisted}) async {
+    op.log(
+      dirExisted
+          ? 'Откат: удаление контейнеров и файлов установки.'
+          : 'Откат: удаление контейнеров и каталога $kServerDir.',
+    );
+    try {
+      await op.run(removeContainerCmd(kVpnContainer), check: false, cleanup: true);
+      await op.run(removeContainerCmd(kKeyserverContainer), check: false, cleanup: true);
+      await op.run(rollbackFilesCmd(dirExisted: dirExisted), check: false, cleanup: true);
+    } catch (e) {
+      op.log('Откат не завершён: $e');
+    }
+  }
+
+  /// True when `docker info` works now.
+  Future<bool> _dockerAnswers(_Op op) async {
+    final out = await op.run(
+      'docker info >/dev/null 2>&1 && echo DOCKER_OK || echo DOCKER_DOWN',
+      check: false,
+      quiet: true,
+    );
+    return out.contains('DOCKER_OK');
+  }
+
+  /// SSH as a non-root user cannot install or configure anything.
+  Future<void> _requireRoot(_Op op) async {
+    final uid = (await op.run(kUidCmd, check: false, quiet: true)).trim();
+    if (uid != '0') {
+      throw const VpsException(
+        'Нужен вход под root (или пользователем с uid 0): установка ставит пакеты, '
+        'Docker и правила firewall.',
+      );
+    }
   }
 
   Future<void> _restoreConfig(_Op op) async {
@@ -629,8 +698,11 @@ class VpsDeployer {
       'test -f $kServerConfig.bak && cp -f $kServerConfig.bak $kServerConfig; '
       'docker restart $kVpnContainer >/dev/null 2>&1; true',
       check: false,
+      cleanup: true,
     );
   }
+
+  Future<void> _pause(int seconds) => _delay(Duration(seconds: seconds));
 
   String _randomHex(int bytes) =>
       hexEncode(List<int>.generate(bytes, (_) => _random.nextInt(256)));
@@ -693,6 +765,16 @@ class _Op {
 
   final StreamController<DeployEvent> _controller;
   SshSession? _session;
+  bool _cancelled = false;
+
+  bool get cancelled => _cancelled;
+
+  /// The subscriber went away. The operation stops at its next remote step.
+  void cancel() => _cancelled = true;
+
+  void _checkCancelled() {
+    if (_cancelled) throw const VpsException('Операция отменена.');
+  }
 
   void attach(SshSession session) => _session = session;
 
@@ -733,7 +815,9 @@ class _Op {
     bool quiet = false,
     bool secret = false,
     Duration timeout = const Duration(seconds: 60),
+    bool cleanup = false,
   }) async {
+    if (!cleanup) _checkCancelled();
     final firstLine = cmd.split('\n').first;
     final shown = secret
         ? '[скрыто]'
@@ -756,6 +840,7 @@ class _Op {
   }
 
   Future<void> upload(List<int> data, String path, {int? mode}) async {
+    _checkCancelled();
     final name = path.split('/').last;
     final mb = (data.length / 1024 / 1024).toStringAsFixed(1);
     log('upload $name ($mb МБ)');
@@ -773,6 +858,3 @@ Map<String, dynamic> _decodeConfig(String text) {
   }
   throw const VpsException('Не удалось прочитать конфиг сервера.');
 }
-
-Future<void> _pause(int seconds) =>
-    Future<void>.delayed(Duration(seconds: seconds));

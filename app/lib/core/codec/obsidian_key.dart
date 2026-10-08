@@ -336,8 +336,19 @@ ClientConfig _parseUri(String raw) {
 }
 
 String _validPort(String port) {
-  if (port.isEmpty || RegExp(r'^[0-9]+$').hasMatch(port)) return port;
-  throw const KeyFormatException(_badPort);
+  if (port.isEmpty) return port;
+  if (!RegExp(r'^[0-9]+$').hasMatch(port)) throw const KeyFormatException(_badPort);
+  _requirePortInRange(port);
+  return port;
+}
+
+/// A TCP/UDP port must be 1..65535. Longer digit strings are rejected without
+/// parsing them into an int.
+void _requirePortInRange(String port) {
+  final value = port.length > 5 ? null : int.tryParse(port);
+  if (value == null || value < 1 || value > 65535) {
+    throw const KeyFormatException(_badPort);
+  }
 }
 
 Map<String, List<String>> _parseQuery(String raw) {
@@ -479,6 +490,14 @@ ClientConfig _decodeObsdn(String input) {
   String str(String key) => compact[key] is String ? compact[key] as String : '';
   double? number(String key) =>
       compact[key] is num ? (compact[key] as num).toDouble() : null;
+
+  if (text('h').trim().isEmpty) {
+    throw const KeyFormatException('В ключе не указан адрес сервера.');
+  }
+  if (text('k').trim().isEmpty) {
+    throw const KeyFormatException('В ключе нет публичного ключа сервера.');
+  }
+  _requirePortInRange(text('p').trim());
 
   final defaults = goDefaultClientConfig();
   var c = defaults.copyWith(
@@ -744,6 +763,18 @@ ClientConfig buildRuntimeConfig(
     clientPrivateKey: clientPrivateKeyHex,
     clientPublicKey: clientPublicKeyHex,
   );
+}
+
+/// Public key (64 lowercase hex chars) for the X25519 private key [privateHex].
+/// Returns null when [privateHex] is not 64 hex characters.
+Future<String?> clientPublicKeyFor(String privateHex) async {
+  final hex = privateHex.trim().toLowerCase();
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(hex)) return null;
+  final bytes = [
+    for (var i = 0; i < 64; i += 2) int.parse(hex.substring(i, i + 2), radix: 16),
+  ];
+  final keyPair = await X25519().newKeyPairFromSeed(bytes);
+  return _hex((await keyPair.extractPublicKey()).bytes);
 }
 
 /// Generates an X25519 keypair. Returns (privateHex, publicHex), both 64 lowercase hex chars.

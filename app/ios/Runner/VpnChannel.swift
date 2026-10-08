@@ -55,12 +55,14 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             self?.stopStatsTimer()
+            self?.stopStagePoll()
         })
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            guard let self, self.statsWanted else { return }
-            self.startStatsTimer()
+            guard let self else { return }
+            if self.statsWanted, self.isTunnelUp { self.startStatsTimer() }
+            if self.manager?.connection.status == .connecting { self.startStagePoll() }
         })
     }
 
@@ -117,6 +119,12 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         loadManager(create: true) { [weak self] mgr, _ in
             guard let self, let mgr else {
                 result(false)
+                return
+            }
+            if mgr.protocolConfiguration != nil && mgr.isEnabled {
+                // Профиль уже установлен и включён. Повторное сохранение не нужно и могло бы
+                // перезапустить работающий туннель.
+                result(true)
                 return
             }
             if mgr.protocolConfiguration == nil {
@@ -184,8 +192,11 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
     private func disconnect(_ result: @escaping FlutterResult) {
         userStopped = true
         defaults.removeObject(forKey: VpnChannel.errorKey)
-        manager?.connection.stopVPNTunnel()
-        result(nil)
+        // После перезапуска приложения менеджер ещё не загружен, а туннель мог остаться запущенным.
+        loadManager(create: false) { mgr, _ in
+            mgr?.connection.stopVPNTunnel()
+            result(nil)
+        }
     }
 
     private func applySplit(_ args: [String: Any]?, _ result: @escaping FlutterResult) {
@@ -193,28 +204,40 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
             result(FlutterError(code: "bad_args", message: "Не передана конфигурация (configJson).", details: nil))
             return
         }
-        guard let mgr = manager, let session = mgr.connection as? NETunnelProviderSession else {
-            result(nil)
-            return
-        }
-        let status = session.status
-        guard status == .connected || status == .reasserting else {
-            // Туннель не поднят: правила уйдут с ближайшим connect.
-            result(nil)
-            return
-        }
-        do {
-            try session.sendProviderMessage(Data(configJson.utf8)) { reply in
-                DispatchQueue.main.async {
-                    if let reply, String(data: reply, encoding: .utf8) == "ok" {
-                        result(nil)
-                    } else {
-                        result(FlutterError(code: "split_failed", message: "Не удалось применить раздельное туннелирование.", details: nil))
+        loadManager(create: false) { mgr, _ in
+            guard let mgr, let session = mgr.connection as? NETunnelProviderSession else {
+                result(nil)
+                return
+            }
+            let status = session.status
+            guard status == .connected || status == .reasserting else {
+                // Туннель не поднят: правила уйдут с ближайшим connect.
+                result(nil)
+                return
+            }
+            // Ответ ровно один раз: расширение могло умереть и не вызвать колбэк, тогда отвечает таймаут.
+            var answered = false
+            let answer: (Any?) -> Void = { value in
+                guard !answered else { return }
+                answered = true
+                result(value)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+                answer(FlutterError(code: "split_failed", message: "Расширение туннеля не ответило.", details: nil))
+            }
+            do {
+                try session.sendProviderMessage(Data(configJson.utf8)) { reply in
+                    DispatchQueue.main.async {
+                        if let reply, String(data: reply, encoding: .utf8) == "ok" {
+                            answer(nil)
+                        } else {
+                            answer(FlutterError(code: "split_failed", message: "Не удалось применить раздельное туннелирование.", details: nil))
+                        }
                     }
                 }
+            } catch {
+                answer(FlutterError(code: "split_failed", message: error.localizedDescription, details: nil))
             }
-        } catch {
-            result(FlutterError(code: "split_failed", message: error.localizedDescription, details: nil))
         }
     }
 
@@ -232,19 +255,27 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         return proto
     }
 
-    private func loadManager(create: Bool, completion: @escaping (NETunnelProviderManager?, Error?) -> Void) {
+    private typealias ManagerCompletion = (NETunnelProviderManager?, Error?) -> Void
+    private var pendingLoads: [(create: Bool, completion: ManagerCompletion)] = []
+    private var isLoadingManagers = false
+
+    /// Параллельные вызовы делят один loadAllFromPreferences. Иначе два вызова подряд создали бы два профиля.
+    private func loadManager(create: Bool, completion: @escaping ManagerCompletion) {
         if let manager {
             completion(manager, nil)
             return
         }
+        pendingLoads.append((create: create, completion: completion))
+        if isLoadingManagers { return }
+        isLoadingManagers = true
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
             DispatchQueue.main.async {
-                guard let self else {
-                    completion(nil, error)
-                    return
-                }
+                guard let self else { return }
+                self.isLoadingManagers = false
+                let waiters = self.pendingLoads
+                self.pendingLoads = []
                 if let error {
-                    completion(nil, error)
+                    for waiter in waiters { waiter.completion(nil, error) }
                     return
                 }
                 let bundleId = self.providerBundleId
@@ -253,13 +284,21 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
                 }) ?? managers?.first
                 if let found {
                     self.attach(found)
-                    completion(found, nil)
-                } else if create {
-                    let fresh = NETunnelProviderManager()
-                    self.attach(fresh)
-                    completion(fresh, nil)
-                } else {
-                    completion(nil, nil)
+                    for waiter in waiters { waiter.completion(found, nil) }
+                    return
+                }
+                var fresh: NETunnelProviderManager?
+                for waiter in waiters {
+                    if waiter.create {
+                        if fresh == nil {
+                            let created = NETunnelProviderManager()
+                            self.attach(created)
+                            fresh = created
+                        }
+                        waiter.completion(fresh, nil)
+                    } else {
+                        waiter.completion(nil, nil)
+                    }
                 }
             }
         }
@@ -309,7 +348,7 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         switch status {
         case .connecting, .reasserting:
             sawActive = true
-            if status == .connecting { startStagePoll() }
+            if status == .connecting, UIApplication.shared.applicationState != .background { startStagePoll() }
         case .connected:
             sawActive = true
             reachedConnected = true
@@ -344,7 +383,10 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         lastPhase = signature
         sink?(map)
 
-        if statsWanted, status == .connected || status == .reasserting { startStatsTimer() }
+        if statsWanted, status == .connected || status == .reasserting,
+           UIApplication.shared.applicationState != .background {
+            startStatsTimer()
+        }
     }
 
     private func statusMap(for status: NEVPNStatus, phaseOverride: String?, error: String?) -> [String: Any] {
@@ -406,10 +448,16 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         stagePollTimer = nil
     }
 
+    /// Статистику имеет смысл опрашивать только при поднятом туннеле: иначе таймер тикает вхолостую.
+    private var isTunnelUp: Bool {
+        let status = manager?.connection.status
+        return status == .connected || status == .reasserting
+    }
+
     private func setStatsActive(_ active: Bool) {
         statsWanted = active
         if active {
-            if UIApplication.shared.applicationState != .background { startStatsTimer() }
+            if UIApplication.shared.applicationState != .background, isTunnelUp { startStatsTimer() }
         } else {
             stopStatsTimer()
         }

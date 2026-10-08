@@ -30,6 +30,8 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
   bool _loaded = false;
   bool _missing = false;
   bool _allowPop = false;
+  bool _saving = false;
+  bool _leaving = false;
 
   SplitMode _mode = SplitMode.off;
   Set<SplitPreset> _presets = <SplitPreset>{};
@@ -96,29 +98,36 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
     });
   }
 
-  void _markSaved() {
+  /// Marks the draft that was sent to storage as saved. Edits made while the save was
+  /// running stay unsaved.
+  void _markSaved(SplitMode mode, Set<SplitPreset> presets, String text) {
     setState(() {
-      _savedMode = _mode;
-      _savedPresets = {..._presets};
-      _savedText = _entries.text;
+      _savedMode = mode;
+      _savedPresets = {...presets};
+      _savedText = text;
     });
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     _debounce?.cancel();
     _reparse();
     final l10n = AppLocalizations.of(context);
     final state = AppState.of(context);
     final skipped = _issues.length;
+    final mode = _mode;
+    final presets = {..._presets};
+    final text = _entries.text;
     final split = SplitTunnelConfig(
-      mode: _mode,
+      mode: mode,
       entries: [for (final rule in _rules) rule.canonical],
-      presets: _presets,
+      presets: presets,
     );
+    setState(() => _saving = true);
     try {
       await state.setSplit(widget.profileId, split);
       if (!mounted) return;
-      _markSaved();
+      _markSaved(mode, presets, text);
       showObsToast(
         context,
         skipped == 0 ? l10n.splitSaved : l10n.splitSavedSkipped(skipped),
@@ -127,12 +136,28 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
     } on AppStateException catch (e) {
       // The profile is stored even when the running tunnel could not be updated.
       if (!mounted) return;
-      _markSaved();
+      _markSaved(mode, presets, text);
       showObsToast(context, e.messageRu, kind: ObsToastKind.error);
+    } catch (_) {
+      // Storage failed: the draft stays unsaved so nothing is lost.
+      if (!mounted) return;
+      showObsToast(context, l10n.vpsErrorGeneric, kind: ObsToastKind.error);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _leave() async {
+    if (_leaving) return;
+    _leaving = true;
+    try {
+      await _askLeave();
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  Future<void> _askLeave() async {
     final choice = await showAdaptiveSheet<_LeaveChoice>(context, (
       sheetContext,
     ) {
@@ -336,7 +361,8 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
                         ],
                         ObsButton(
                           label: l10n.splitSave,
-                          onPressed: dirty ? _save : null,
+                          loading: _saving,
+                          onPressed: dirty && !_saving ? _save : null,
                         ),
                       ],
                     ),

@@ -169,13 +169,14 @@ class SshSession {
   }
 
   /// Writes [data] to [remotePath] (creating parent directories) through SFTP.
-  /// Falls back to `cat` over an exec channel when SFTP is unavailable.
+  /// Falls back to `cat` over an exec channel when SFTP is unavailable, and checks
+  /// the size of the remote file afterwards.
   /// When [mode] is set, the file permissions are changed to it (e.g. 0x1ed = 0755).
   Future<void> upload(Uint8List data, String remotePath, {int? mode}) async {
     final slash = remotePath.lastIndexOf('/');
     if (slash > 0) {
       final dir = remotePath.substring(0, slash);
-      final made = await run("mkdir -p '$dir'");
+      final made = await run('mkdir -p ${shellQuote(dir)}');
       if (!made.ok) {
         throw VpsException('Не удалось создать каталог $dir: ${made.stderr}');
       }
@@ -184,11 +185,21 @@ class SshSession {
       await _uploadSftp(data, remotePath);
     } catch (e) {
       _log?.call('SFTP недоступен, передача через exec: ${_short(e)}');
-      await _uploadStream(data, remotePath);
+      try {
+        await _uploadStream(data, remotePath);
+      } on TimeoutException {
+        throw VpsException('Передача $remotePath не завершилась за 5 минут.');
+      }
+    }
+    final size = await run('wc -c < ${shellQuote(remotePath)}');
+    if (!size.ok || int.tryParse(size.stdout.trim()) != data.length) {
+      throw VpsException(
+        'Файл $remotePath записан не полностью (${size.stdout.trim()} из ${data.length} байт).',
+      );
     }
     if (mode != null) {
       final chmod = await run(
-        "chmod ${mode.toRadixString(8)} '$remotePath'",
+        'chmod ${mode.toRadixString(8)} ${shellQuote(remotePath)}',
       );
       if (!chmod.ok) {
         throw VpsException('Не удалось выставить права на $remotePath.');
@@ -217,9 +228,7 @@ class SshSession {
 
   Future<void> _uploadStream(Uint8List data, String remotePath) async {
     final tmp = '/tmp/.obsidian-upload-${Random.secure().nextInt(1 << 31)}';
-    final session = await _client.execute(
-      "cat > '$tmp' && mv -f '$tmp' '$remotePath'",
-    );
+    final session = await _client.execute(streamUploadCommand(tmp, remotePath));
     session.stdin.add(data);
     await session.stdin.close();
     final err = BytesBuilder(copy: false);
@@ -243,3 +252,17 @@ class SshSession {
     return text.length > 160 ? text.substring(0, 160) : text;
   }
 }
+
+/// Single-quotes [value] for a POSIX shell. A quote inside is closed, escaped and
+/// reopened.
+String shellQuote(String value) {
+  const closeEscapeReopen = r"'\''";
+  return "'${value.replaceAll("'", closeEscapeReopen)}'";
+}
+
+/// Remote command of the exec upload fallback. `umask 077` keeps the temp file (it may
+/// hold the server private key) unreadable for other users; a leftover temp file is
+/// removed when the copy fails.
+String streamUploadCommand(String tmp, String remotePath) =>
+    'umask 077; cat > ${shellQuote(tmp)} && mv -f ${shellQuote(tmp)} ${shellQuote(remotePath)} '
+    '|| { rm -f ${shellQuote(tmp)}; exit 1; }';

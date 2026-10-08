@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide Durations;
 
 import '../../l10n/app_localizations.dart';
 import '../../theme/theme.dart';
+import '../../vps/deploy_scripts.dart' as scripts;
 import '../../vps/vps_models.dart';
 import '../widgets/widgets.dart';
 import 'vps_common.dart';
@@ -20,10 +21,10 @@ const List<String> kSniMasks = <String>[
 ];
 
 final RegExp _hostPattern = RegExp(r'^[A-Za-z0-9.\-:]+$');
-final RegExp _domainPattern = RegExp(r'^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$');
 
-/// True when [value] looks like a domain for the REALITY mask (no scheme, no path).
-bool isValidSni(String value) => _domainPattern.hasMatch(value);
+/// True when [value] is a domain for the REALITY mask (no scheme, no path). Same rule as
+/// the deployer applies, so a value accepted here is never rejected on the server step.
+bool isValidSni(String value) => value.contains('.') && scripts.isValidSni(value);
 
 enum SshAuthMode { password, key }
 
@@ -255,7 +256,10 @@ Future<void> _pickKeyFile(BuildContext context, SshFormController ctl) async {
   try {
     final file = await FilePicker.pickFile(dialogTitle: l.vpsKeyFile);
     if (file == null) return;
-    final text = utf8.decode(await file.readAsBytes());
+    final bytes = await file.readAsBytes();
+    // A private key is a few KB. Anything bigger is the wrong file.
+    if (bytes.length > 64 * 1024) throw const FormatException('key file too large');
+    final text = utf8.decode(bytes);
     ctl.keyPem.text = text.trim();
     ctl.pickedKeyName.value = file.name;
   } catch (_) {

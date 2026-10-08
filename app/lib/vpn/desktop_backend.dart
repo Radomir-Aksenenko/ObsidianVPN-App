@@ -31,6 +31,9 @@ class DesktopVpnBackend implements VpnBackend {
     // Startup cleanup of stale Windows routes and DNS policy. It runs in the
     // queue, so a connect started right away waits for it.
     if (Platform.isWindows) unawaited(_serial(cleanupWindowsNetwork));
+    // Configs left by a crash or a forced quit hold client keys: sweep them before
+    // the first connect (the queue keeps a connect behind this sweep).
+    unawaited(_serial(_sweepStaleConfigs));
   }
 
   static const _ringSize = 500;
@@ -52,6 +55,10 @@ class DesktopVpnBackend implements VpnBackend {
   /// are logged but never parsed or reported.
   int _gen = 0;
   DesktopRuntime? _runtime;
+
+  /// Config file of the current run. It holds the client key, so it is deleted when
+  /// the run ends (see [_removeRunConfig]).
+  String? _runConfigPath;
   ClientLogFile? _logFile;
   ({String profileId, String name, String serverHost})? _last;
 
@@ -148,15 +155,18 @@ class DesktopVpnBackend implements VpnBackend {
       }
       final rt = await _prepareRuntime();
       final cfgPath = await rt.writeConfig(profileId, configJson);
+      _runConfigPath = cfgPath;
       _writeLog('--- connect "$name" -> $serverHost ---');
       final gen = ++_gen;
       final run = await _launch(rt, cfgPath, profileId, gen);
       _run = run;
       unawaited(run.done.then((_) => _onRunEnded(gen)));
     } on ElevationDenied catch (e) {
+      _removeRunConfig();
       _emit(VpnStatus(phase: VpnPhase.error, error: e.message));
       rethrow;
     } catch (e) {
+      _removeRunConfig();
       final message = e is VpnBackendException
           ? e.message
           : 'Не удалось запустить клиент: $e';
@@ -173,13 +183,17 @@ class DesktopVpnBackend implements VpnBackend {
       _emit(const VpnStatus(phase: VpnPhase.disconnecting));
       await run.stop();
     }
+    // The client has read its config at startup. Remove the key file once it is gone.
+    _removeRunConfig();
     _emit(const VpnStatus());
     await cleanupWindowsNetwork();
   }
 
-  /// The client exited on its own: report the error and clean up the network.
+  /// The client exited on its own: remove its config, report the error and clean up
+  /// the network.
   void _onRunEnded(int gen) {
     if (gen != _gen || _run == null) return;
+    _removeRunConfig();
     final tail = _ring.length > 40
         ? _ring.skip(_ring.length - 40).toList()
         : _ring.toList();
@@ -187,6 +201,25 @@ class DesktopVpnBackend implements VpnBackend {
     _run = null;
     _emit(VpnStatus(phase: VpnPhase.error, error: humanizeExit(tail)));
     if (Platform.isWindows) unawaited(_serial(cleanupWindowsNetwork));
+  }
+
+  /// Deletes the config of the current run, if any. Synchronous on purpose: a new
+  /// connect for the same profile writes the same path, and must not race a delete.
+  void _removeRunConfig() {
+    final path = _runConfigPath;
+    _runConfigPath = null;
+    if (path == null) return;
+    DesktopRuntime.deleteConfigFile(path);
+  }
+
+  /// Removes `*.json` configs left in the runtime folder by an earlier app run.
+  Future<void> _sweepStaleConfigs() async {
+    try {
+      final support = await getApplicationSupportDirectory();
+      await DesktopRuntime(support.path).deleteStaleConfigs();
+    } catch (_) {
+      // Best effort: without the support folder there is nothing to sweep.
+    }
   }
 
   void _handleLine(int gen, String raw) {
@@ -291,8 +324,10 @@ class DesktopVpnBackend implements VpnBackend {
   ) async {
     final fifo = rt.pathFor(profileId, '.stdin');
     final log = rt.pathFor(profileId, '.run.log');
-    final stale = File(fifo);
-    if (await stale.exists()) await stale.delete();
+    // File.exists is false for a FIFO, so a leftover one would make mkfifo fail.
+    if (await FileSystemEntity.type(fifo) != FileSystemEntityType.notFound) {
+      await File(fifo).delete();
+    }
     final mk = await Process.run('mkfifo', [fifo]);
     if (mk.exitCode != 0) {
       throw VpnBackendException('Не удалось создать канал stdin: ${mk.stderr}');
@@ -313,14 +348,23 @@ class DesktopVpnBackend implements VpnBackend {
     }
 
     // Opening the FIFO for writing blocks until the client opens it for reading.
-    final writer = await File(fifo)
-        .open(mode: FileMode.writeOnly)
-        .timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => throw const VpnBackendException(
-            'Клиент не открыл канал stdin. Попробуйте подключиться снова.',
-          ),
-        );
+    final RandomAccessFile writer;
+    try {
+      writer = await File(fifo)
+          .open(mode: FileMode.writeOnly)
+          .timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      // The root client is still running and waits for stdin. Nothing else will stop
+      // it, so kill it here, the same way a normal stop does, before reporting.
+      try {
+        await _osascriptAdmin('kill -KILL $pid 2>/dev/null; true');
+      } on Object catch (_) {
+        // The error below is still reported.
+      }
+      throw const VpnBackendException(
+        'Клиент не открыл канал stdin. Попробуйте подключиться снова.',
+      );
+    }
     return _OsaRun(pid: pid, stdin: writer, logPath: log, onLine: onLine);
   }
 }

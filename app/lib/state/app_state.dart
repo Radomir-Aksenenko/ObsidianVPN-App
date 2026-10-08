@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show ValueListenable, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:obsidian_vpn/core/codec/client_config.dart';
 import 'package:obsidian_vpn/core/codec/obsidian_key.dart';
@@ -156,10 +156,29 @@ class AppState extends ChangeNotifier {
   final bool _observeLifecycle;
 
   final List<String> _logLines = <String>[];
+
+  /// Log lines are published to [_logsNotifier] at most once per
+  /// [_logPublishInterval]: the first line of a quiet period goes out at once, and a
+  /// burst is coalesced into one trailing publish. Logs never call notifyListeners.
+  static const Duration _logPublishInterval = Duration(milliseconds: 250);
+  final ValueNotifier<List<String>> _logsNotifier =
+      ValueNotifier<List<String>>(const <String>[]);
+  Timer? _logPublishTimer;
+  DateTime? _lastLogPublish;
+
+  /// Mutations (addKey, removeProfile, ...) run one at a time through this chain,
+  /// so two calls cannot both pass a duplicate check before either one saves.
+  Future<void> _mutationChain = Future<void>.value();
+
   final Map<String, int?> _pings = <String, int?>{};
   VpnStatus _status = const VpnStatus();
   TrafficStats? _stats;
   String? _activeProfileId;
+
+  /// Profile of the last connect request. Survives the short disconnected phase
+  /// of a live split reapply, so the connected profile is not mixed up with the
+  /// selected one. Cleared by an explicit disconnect.
+  String? _tunnelProfileId;
   Future<void>? _pendingConnect;
   bool _initialized = false;
   bool _disposed = false;
@@ -214,14 +233,20 @@ class AppState extends ChangeNotifier {
   /// Latest traffic sample. Null when disconnected or when stats are not active.
   TrafficStats? get stats => _stats;
 
-  /// Last [kAppLogCapacity] log lines, oldest first. Read-only view.
+  /// Last [kAppLogCapacity] log lines, oldest first. Read-only view. It is not
+  /// reactive: listen to [logsListenable] to rebuild on new lines.
   UnmodifiableListView<String> get logs => UnmodifiableListView(_logLines);
+
+  /// Snapshot of the log lines, updated at most once per 250 ms during bursts. Each
+  /// value is an unmodifiable copy, oldest first. Log UIs listen to this instead of
+  /// the whole state.
+  ValueListenable<List<String>> get logsListenable => _logsNotifier;
 
   /// Removes all log lines. The log keeps filling from new events.
   void clearLogs() {
     if (_logLines.isEmpty) return;
     _logLines.clear();
-    _notify();
+    _publishLogs();
   }
 
   /// Last TCP ping per profile id, in milliseconds. A null value means the
@@ -271,7 +296,10 @@ class AppState extends ChangeNotifier {
   /// The profile is deduplicated by host, port and server public key: if one
   /// exists, it is returned unchanged. When this is the first profile, it is
   /// selected. Throws [KeyFormatException] for invalid input.
-  Future<ServerProfile> addKey(String input, {String? name}) async {
+  Future<ServerProfile> addKey(String input, {String? name}) =>
+      _serialMutation(() => _addKeyNow(input, name: name));
+
+  Future<ServerProfile> _addKeyNow(String input, {String? name}) async {
     final config = parseKey(input);
     final host = config.serverHost;
     final port = int.tryParse(config.serverPort) ?? int.parse(kDefaultPort);
@@ -310,9 +338,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// Removes a profile and its secrets. Disconnects first when it is the active tunnel.
-  Future<void> removeProfile(String id) async {
+  Future<void> removeProfile(String id) =>
+      _serialMutation(() => _removeProfileNow(id));
+
+  Future<void> _removeProfileNow(String id) async {
     if (profileById(id) == null) return;
-    if (_activeProfileId == id) await disconnect();
+    if (_activeProfileId == id || _tunnelProfileId == id) await disconnect();
     await _store.removeProfile(id);
     _pings.remove(id);
     if (settings.lastProfileId == id) {
@@ -330,7 +361,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// Renames a profile. Throws [AppStateException] when [name] is empty.
-  Future<void> renameProfile(String id, String name) async {
+  Future<void> renameProfile(String id, String name) =>
+      _serialMutation(() => _renameProfileNow(id, name));
+
+  Future<void> _renameProfileNow(String id, String name) async {
     final profile = _requireProfile(id);
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
@@ -358,10 +392,14 @@ class AppState extends ChangeNotifier {
   ///
   /// When the profile is connected, the new rules are applied to the running
   /// tunnel with [VpnBackend.applySplit]. Throws [AppStateException] when that fails.
-  Future<void> setSplit(String profileId, SplitTunnelConfig split) async {
+  Future<void> setSplit(String profileId, SplitTunnelConfig split) =>
+      _serialMutation(() => _setSplitNow(profileId, split));
+
+  Future<void> _setSplitNow(String profileId, SplitTunnelConfig split) async {
     final updated = _requireProfile(profileId).copyWith(split: split);
     await _store.putProfile(updated);
     if (_activeProfileId == profileId && isConnected) {
+      _tunnelProfileId = profileId;
       try {
         await _backend.applySplit(await _buildConfigJson(updated));
       } on Object catch (_) {
@@ -417,6 +455,18 @@ class AppState extends ChangeNotifier {
 
   /// Stops the tunnel. Failures set [vpnStatus] to an error.
   Future<void> disconnect() async {
+    _tunnelProfileId = null;
+    final pending = _pendingConnect;
+    if (pending != null &&
+        (_status.phase == VpnPhase.disconnected ||
+            _status.phase == VpnPhase.error)) {
+      // A connect is still preparing (UAC prompt, keypair, config) and the
+      // backend has not reported progress yet. Let it finish, then stop it.
+      try {
+        await pending;
+      } on Object catch (_) {}
+      _tunnelProfileId = null;
+    }
     if (_status.phase == VpnPhase.disconnected) return;
     _log('Отключение');
     try {
@@ -451,6 +501,12 @@ class AppState extends ChangeNotifier {
   /// keyserver admin token, and the SSH password, key and passphrase. A null
   /// secret in [creds] removes the stored one. Returns the saved profile.
   Future<ServerProfile> saveVpsProfile(
+    DeployResult result,
+    VpsCredentials creds, {
+    String? hostKey,
+  }) => _serialMutation(() => _saveVpsProfileNow(result, creds, hostKey: hostKey));
+
+  Future<ServerProfile> _saveVpsProfileNow(
     DeployResult result,
     VpsCredentials creds, {
     String? hostKey,
@@ -646,6 +702,28 @@ class AppState extends ChangeNotifier {
     String? ownerKey,
     ClientConfig? ownerConfig,
     String? adminToken,
+  }) => _serialMutation(
+    () => _updateVpsProfileNow(
+      profileId,
+      creds: creds,
+      hostKey: hostKey,
+      serverVersion: serverVersion,
+      needsUpdate: needsUpdate,
+      ownerKey: ownerKey,
+      ownerConfig: ownerConfig,
+      adminToken: adminToken,
+    ),
+  );
+
+  Future<ServerProfile> _updateVpsProfileNow(
+    String profileId, {
+    VpsCredentials? creds,
+    String? hostKey,
+    String? serverVersion,
+    bool? needsUpdate,
+    String? ownerKey,
+    ClientConfig? ownerConfig,
+    String? adminToken,
   }) async {
     final current = profileById(profileId);
     if (current == null || current.vps == null) {
@@ -717,12 +795,15 @@ class AppState extends ChangeNotifier {
     _disposed = true;
     _pingTimer?.cancel();
     _pingTimer = null;
+    _logPublishTimer?.cancel();
+    _logPublishTimer = null;
     _lifecycle?.dispose();
     _lifecycle = null;
     unawaited(_statusSub?.cancel());
     unawaited(_statsSub?.cancel());
     unawaited(_logSub?.cancel());
     unawaited(_backend.dispose());
+    _logsNotifier.dispose();
     super.dispose();
   }
 
@@ -735,6 +816,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     _activeProfileId = profile.id;
+    _tunnelProfileId = profile.id;
     _log('Подключение: ${profile.name}');
     _notify();
     try {
@@ -790,7 +872,7 @@ class AppState extends ChangeNotifier {
       );
     }
     final base = parseKey(rawKey);
-    final keypair = await _loadOrCreateKeypair(profile.id);
+    final keypair = await _clientKeypair(profile.id, base);
     final runtime = buildRuntimeConfig(
       base,
       profileId: '$deviceId/${profile.id}',
@@ -801,6 +883,21 @@ class AppState extends ChangeNotifier {
       ..addAll(profile.split.toJson())
       ..['split_sites'] = profile.split.effectiveEntries();
     return jsonEncode(json);
+  }
+
+  /// A client key embedded in the server key (`c` / `client_key`) wins, like in the
+  /// old desktop app: the server may have registered its public half. Otherwise the
+  /// stored keypair is used, created on first use.
+  Future<(String, String)> _clientKeypair(
+    String profileId,
+    ClientConfig base,
+  ) async {
+    final embedded = base.clientPrivateKey.trim().toLowerCase();
+    if (embedded.isNotEmpty) {
+      final publicKey = await clientPublicKeyFor(embedded);
+      if (publicKey != null) return (embedded, publicKey);
+    }
+    return _loadOrCreateKeypair(profileId);
   }
 
   Future<(String, String)> _loadOrCreateKeypair(String profileId) async {
@@ -863,17 +960,24 @@ class AppState extends ChangeNotifier {
   }
 
   void _onLifecycleState(AppLifecycleState state) {
-    final resumed = state == AppLifecycleState.resumed;
-    _backend.statsActive = resumed;
+    // `inactive` is a window that lost focus (desktop) or a system dialog on top
+    // (mobile): it is still on screen, so stats and pings keep running. Only
+    // hidden, paused and detached count as background and stop the timers.
+    final active =
+        state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+    _backend.statsActive = active;
+    if (active == (_pingTimer != null)) return;
     _pingTimer?.cancel();
     _pingTimer = null;
-    if (resumed) {
+    if (active) {
       _pingTimer = Timer.periodic(_pingInterval, (_) => _pingAll());
       _pingAll();
     }
   }
 
   void _onStatus(VpnStatus next) {
+    final changed = next != _status;
     _status = next;
     switch (next.phase) {
       case VpnPhase.disconnected:
@@ -883,11 +987,12 @@ class AppState extends ChangeNotifier {
       case VpnPhase.connecting:
       case VpnPhase.connected:
       case VpnPhase.reconnecting:
-        _activeProfileId ??= selectedProfile?.id;
+        _activeProfileId ??= _tunnelProfileId ?? selectedProfile?.id;
       case VpnPhase.disconnecting:
         break;
     }
-    _notify();
+    // VpnStatus has value equality: an unchanged status does not rebuild the app.
+    if (changed) _notify();
   }
 
   void _onStats(TrafficStats next) {
@@ -899,12 +1004,42 @@ class AppState extends ChangeNotifier {
     _log('Ошибка канала VPN');
   }
 
+  /// Adds a log line. Does not notify listeners: log views listen to [logsListenable].
   void _log(String line) {
     _logLines.add(line);
     if (_logLines.length > kAppLogCapacity) {
       _logLines.removeRange(0, _logLines.length - kAppLogCapacity);
     }
-    _notify();
+    _scheduleLogPublish();
+  }
+
+  void _scheduleLogPublish() {
+    if (_disposed || _logPublishTimer != null) return;
+    final last = _lastLogPublish;
+    final wait = last == null
+        ? Duration.zero
+        : _logPublishInterval - DateTime.now().difference(last);
+    if (wait <= Duration.zero) {
+      _publishLogs();
+      return;
+    }
+    _logPublishTimer = Timer(wait, _publishLogs);
+  }
+
+  void _publishLogs() {
+    _logPublishTimer?.cancel();
+    _logPublishTimer = null;
+    _lastLogPublish = DateTime.now();
+    if (_disposed) return;
+    _logsNotifier.value = List<String>.unmodifiable(_logLines);
+  }
+
+  /// Runs [action] after every mutation queued before it. A failing action does not
+  /// block the queue: its error goes to the caller only.
+  Future<T> _serialMutation<T>(Future<T> Function() action) {
+    final next = _mutationChain.then((_) => action());
+    _mutationChain = next.then<void>((_) {}, onError: (_) {});
+    return next;
   }
 
   void _notify() {

@@ -6,5 +6,7 @@
     <string name="vpn_notification_connected">Подключено к %1$s</string>
     <string name="vpn_notification_reconnecting">Переподключение к %1$s</string>
     <string name="vpn_notification_disconnect">Отключить</string>
+    <string name="vpn_channel_alert_name">VPN: требуется действие</string>
+    <string name="vpn_notification_open_app">Открой Obsidian и подключись один раз</string>
     <string name="vpn_error_not_prepared">Нет разрешения на VPN</string>
 </resources>

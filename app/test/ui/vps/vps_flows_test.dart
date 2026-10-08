@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:obsidian_vpn/ui/vps/deploy_wizard_screen.dart';
 import 'package:obsidian_vpn/ui/vps/issue_key_sheet.dart';
+import 'package:obsidian_vpn/vps/deployer.dart';
 import 'package:obsidian_vpn/vps/vps_models.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -84,5 +87,76 @@ void main() {
     expect(state.issuedKeys.single.devices, 3);
     expect(find.byType(QrImageView), findsOneWidget);
     expect(find.text('Гость'), findsOneWidget);
+  });
+
+  // pumpAndSettle never ends here: the progress bar animates for as long as the deploy runs.
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+  }
+
+  Future<void> openWizard(WidgetTester tester, VpsDeployer deployer) async {
+    final state = await buildState(FakeVpnBackend());
+    await pumpVps(
+      tester,
+      state,
+      Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => DeployWizardScreen(deployer: deployer)),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+      size: const Size(390, 1400),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), '203.0.113.10');
+    await tester.enterText(find.byType(TextField).at(3), 'secret-pass');
+    await tester.tap(find.text('Развернуть'));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  testWidgets('after a failed deploy back leaves without the interrupt prompt', (tester) async {
+    final deployer = FakeDeployer(
+      deployStream: () => Stream<DeployEvent>.error(const VpsException('boom')),
+    );
+    await openWizard(tester, deployer);
+
+    expect(find.text('Операция не выполнена'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Прервать установку?'), findsNothing);
+    expect(find.byType(DeployWizardScreen), findsNothing);
+  });
+
+  testWidgets('leaving a running deploy asks first and cancels the stream', (tester) async {
+    var cancelled = false;
+    late StreamController<DeployEvent> controller;
+    controller = StreamController<DeployEvent>(onCancel: () => cancelled = true);
+    addTearDown(controller.close);
+    await openWizard(tester, FakeDeployer(deployStream: () => controller.stream));
+
+    await tester.tap(find.byType(BackButton));
+    await settle(tester);
+    expect(find.text('Прервать установку?'), findsOneWidget);
+
+    await tester.tap(find.text('Продолжить'));
+    await settle(tester);
+    expect(find.byType(DeployWizardScreen), findsOneWidget);
+    expect(cancelled, isFalse);
+
+    await tester.tap(find.byType(BackButton));
+    await settle(tester);
+    await tester.tap(find.text('Прервать'));
+    await settle(tester);
+    expect(find.byType(DeployWizardScreen), findsNothing);
+    expect(cancelled, isTrue);
   });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide Durations;
+import 'package:flutter/services.dart' show LengthLimitingTextInputFormatter;
 
 import '../../core/codec/obsidian_key.dart';
 import '../../core/models/profile.dart';
@@ -120,6 +121,7 @@ class _IssueKeySheetState extends State<_IssueKeySheet> {
           ObsTextField(
             controller: _name,
             label: l.accessIssueName,
+            inputFormatters: [LengthLimitingTextInputFormatter(kMaxKeyNameLength)],
             textInputAction: TextInputAction.done,
           ),
           const SizedBox(height: Space.s20),

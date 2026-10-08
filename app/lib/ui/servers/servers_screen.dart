@@ -6,6 +6,7 @@ import '../../l10n/app_localizations.dart';
 import '../../platform_info.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../shell.dart';
 import '../widgets/widgets.dart';
 import 'add_key_sheet.dart';
 import 'qr_scan_screen.dart';
@@ -13,8 +14,33 @@ import 'server_actions.dart';
 
 /// Servers tab. Favorites come first. Tap selects a server; the more button opens its actions.
 /// Footer: add by key, and scan a QR code where the camera is available.
-class ServersScreen extends StatelessWidget {
+class ServersScreen extends StatefulWidget {
   const ServersScreen({super.key});
+
+  @override
+  State<ServersScreen> createState() => _ServersScreenState();
+}
+
+class _ServersScreenState extends State<ServersScreen> {
+  final FocusNode _focus = FocusNode(debugLabel: 'servers');
+  bool _wasVisible = false;
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// Takes the keyboard focus when the tab becomes visible, so Ctrl+V reaches this page
+  /// (another tab of the shell holds the focus until then).
+  void _focusWhenShown(bool visible) {
+    if (visible && !_wasVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_editingText()) _focus.requestFocus();
+      });
+    }
+    _wasVisible = visible;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,10 +113,14 @@ class ServersScreen extends StatelessWidget {
       ],
     ];
 
+    // The pages of the shell stay alive in an IndexedStack, so the shortcut must also
+    // check that this tab is the visible one.
+    final visible = (ShellNav.maybeOf(context)?.tab ?? ShellTab.servers) == ShellTab.servers;
+    _focusWhenShown(visible);
     return CallbackShortcuts(
-      bindings: _pasteBindings(context),
+      bindings: _pasteBindings(context, visible),
       child: Focus(
-        autofocus: true,
+        focusNode: _focus,
         child: TabPage(
           title: l10n.serversTitle,
           footer: footer.isEmpty
@@ -107,15 +137,21 @@ class ServersScreen extends StatelessWidget {
   }
 
   /// Ctrl+V (Cmd+V on macOS) opens the add sheet prefilled from the clipboard.
-  Map<ShortcutActivator, VoidCallback> _pasteBindings(BuildContext context) {
-    if (!isDesktop) return const <ShortcutActivator, VoidCallback>{};
+  Map<ShortcutActivator, VoidCallback> _pasteBindings(BuildContext context, bool visible) {
+    if (!isDesktop || !visible) return const <ShortcutActivator, VoidCallback>{};
+    // No key repeat: holding Ctrl+V must not stack several sheets.
     final activator = isMacOS
-        ? const SingleActivator(LogicalKeyboardKey.keyV, meta: true)
-        : const SingleActivator(LogicalKeyboardKey.keyV, control: true);
+        ? const SingleActivator(LogicalKeyboardKey.keyV, meta: true, includeRepeats: false)
+        : const SingleActivator(LogicalKeyboardKey.keyV, control: true, includeRepeats: false);
     return <ShortcutActivator, VoidCallback>{
-      activator: () => _pasteFromClipboard(context),
+      activator: () {
+        // Inside a text field Ctrl+V pastes into that field.
+        if (_editingText()) return;
+        _pasteFromClipboard(context);
+      },
     };
   }
+
 
   Future<void> _pasteFromClipboard(BuildContext context) async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -135,6 +171,14 @@ class ServersScreen extends StatelessWidget {
     if (value == null || !context.mounted) return;
     await showAddKeySheet(context, initialText: value);
   }
+}
+
+/// True when the focused widget is a text field.
+bool _editingText() {
+  final focus = FocusManager.instance.primaryFocus?.context;
+  if (focus == null) return false;
+  return focus.widget is EditableText ||
+      focus.findAncestorWidgetOfExactType<EditableText>() != null;
 }
 
 class _ServerRow extends StatefulWidget {

@@ -351,4 +351,49 @@ void main() {
       expect(a.$1 == b.$1, isFalse);
     });
   });
+
+  group('review fixes', () {
+    test('ports outside 1..65535 are rejected', () {
+      for (final port in ['0', '65536', '99999', '123456789012345678901234567890']) {
+        expect(
+          () => parseKey('obsidian://3f8a@host.example.net:$port'),
+          throwsA(isA<KeyFormatException>()),
+          reason: port,
+        );
+      }
+      expect(parseKey('obsidian://3f8a@host.example.net:65535').serverPort, '65535');
+    });
+
+    test('an OBSDN key without a host or with a bad port is rejected', () {
+      const base = ClientConfig(
+        serverHost: 'h.example.net',
+        serverPort: '443',
+        serverPublicKey: 'ab',
+      );
+      expect(
+        () => parseKey(encodeObsdn(base.copyWith(serverHost: ''))),
+        throwsA(isA<KeyFormatException>()),
+      );
+      expect(
+        () => parseKey(encodeObsdn(base.copyWith(serverPort: '70000'))),
+        throwsA(isA<KeyFormatException>()),
+      );
+      expect(
+        () => parseKey(encodeObsdn(base.copyWith(serverPort: 'abc'))),
+        throwsA(isA<KeyFormatException>()),
+      );
+      expect(parseKey(encodeObsdn(base)).serverHost, 'h.example.net');
+    });
+
+    test('clientPublicKeyFor derives the X25519 public key (RFC 7748 Alice)', () async {
+      expect(
+        await clientPublicKeyFor(
+          '77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a',
+        ),
+        '8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a',
+      );
+      expect(await clientPublicKeyFor('zz'), isNull);
+      expect(await clientPublicKeyFor(''), isNull);
+    });
+  });
 }

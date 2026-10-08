@@ -23,6 +23,7 @@ object VpnBridge {
     const val STAGE_CONNECTED = 4
 
     private val main = Handler(Looper.getMainLooper())
+    @Volatile
     private var sink: EventChannel.EventSink? = null
 
     /** Set from Dart. Stats are produced only while this is true. */
@@ -52,7 +53,13 @@ object VpnBridge {
         }
     }
 
-    fun detach() {
+    /** Drops [events] only. A late cancel of an old listener must not remove a newer one. */
+    fun detach(events: EventChannel.EventSink) {
+        main.post { if (sink === events) sink = null }
+    }
+
+    /** The Flutter engine is going away: nothing may be sent to its sink any more. */
+    fun detachAll() {
         main.post { sink = null }
     }
 
@@ -67,7 +74,7 @@ object VpnBridge {
     }
 
     fun publishStats(rx: Long, tx: Long, rxBps: Long, txBps: Long) {
-        if (!statsActive) return
+        if (!statsActive || sink == null) return
         dispatch(mapOf("type" to "stats", "rx" to rx, "tx" to tx, "rxBps" to rxBps, "txBps" to txBps))
     }
 

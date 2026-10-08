@@ -34,6 +34,12 @@ final DateTime _now = DateTime.utc(2026, 10, 8, 12);
 
 void main() {
   group('issueKey', () {
+    test('a very long name is cut so the key and its QR code stay small', () {
+      final issued = issueKey(serverConfig: _serverConfig(), name: 'x' * 5000);
+      expect(issued.name.length, kMaxKeyNameLength);
+      expect(issued.uri.length, lessThan(1200));
+    });
+
     test('OBSDN key decodes back with expiry, devices and server fields', () {
       final issued = issueKey(
         serverConfig: _serverConfig(),

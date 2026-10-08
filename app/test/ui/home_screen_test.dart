@@ -163,7 +163,8 @@ void main() {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 200)),
     );
-    await tester.pump();
+    // Connect logs several lines within 250 ms; the log publish timer must fire here.
+    await tester.pump(const Duration(milliseconds: 300));
     expect(backend.connects, isNotEmpty);
   });
 
@@ -199,6 +200,24 @@ void main() {
 
     await pumpApp(tester, state, size: const Size(900, 560));
     await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('error state fits 360x844 at text scale 1.3', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final backend = FakeVpnBackend();
+    final state = await buildState(backend, profiles: [fakeProfile()]);
+    await pumpApp(tester, state, size: const Size(360, 844));
+    backend.emitStatus(
+      const VpnStatus(
+        phase: VpnPhase.error,
+        error: 'Не удалось подключиться к серверу: время ожидания истекло, '
+            'проверьте адрес, порт и доступность сервера в сети',
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
   });
 }

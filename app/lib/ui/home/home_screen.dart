@@ -116,7 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
           status: status,
           timerActive: visible && status.phase == VpnPhase.connected,
           onToggle: _toggle,
-          onOpenLogs: () => showLogSheet(context, state.logs),
+          onOpenLogs: () => showLogSheet(context, state.logsListenable),
         );
         final bottom = _Lower(
           state: state,

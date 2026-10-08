@@ -69,9 +69,42 @@ class DesktopRuntime {
   /// readable by the owner only on unix.
   Future<String> writeConfig(String profileId, String json) async {
     final path = pathFor(profileId, '.json');
-    await File(path).writeAsString(json, flush: true);
-    if (!Platform.isWindows) await Process.run('chmod', ['600', path]);
+    final file = File(path);
+    if (!Platform.isWindows) {
+      // Create and restrict the file before the key is written into it, so it is
+      // never readable by other users, not even for a moment.
+      await file.create(recursive: true);
+      await Process.run('chmod', ['600', path]);
+    }
+    await file.writeAsString(json, flush: true);
     return path;
+  }
+
+  /// Deletes a run config. The client reads its config once at startup, and the file
+  /// holds the client key, so it must not stay on disk after the run. A missing or
+  /// locked file is not an error: the next start sweeps it.
+  static void deleteConfigFile(String path) {
+    try {
+      File(path).deleteSync();
+    } on FileSystemException {
+      // Already gone, or locked.
+    }
+  }
+
+  /// Deletes every `*.json` config left in `runtime/` by an earlier run, for
+  /// example after a crash. Other files (client, DLLs, FIFOs, logs) are kept.
+  Future<void> deleteStaleConfigs() async {
+    final dir = Directory(runtimePath);
+    try {
+      if (!await dir.exists()) return;
+      await for (final entity in dir.list()) {
+        if (entity is File && entity.path.endsWith('.json')) {
+          deleteConfigFile(entity.path);
+        }
+      }
+    } on FileSystemException {
+      // Listing is best effort: nothing to remove when the folder cannot be read.
+    }
   }
 
   Future<void> _copyIfChanged(String name, String destPath) async {
@@ -95,8 +128,65 @@ class DesktopRuntime {
 
     final tmp = File('$destPath.tmp');
     await tmp.writeAsBytes(bytes, flush: true);
-    await tmp.rename(destPath);
+    try {
+      await tmp.rename(destPath);
+    } on FileSystemException {
+      // Windows: a running exe or a loaded dll cannot be replaced, but it can be
+      // renamed out of the way.
+      if (!await _replaceLocked(tmp, dest)) {
+        try {
+          await tmp.delete();
+        } on FileSystemException {
+          // Best effort.
+        }
+        // An old copy that cannot be replaced is still usable. Without any
+        // copy there is nothing to run.
+        if (!await dest.exists()) {
+          throw VpnBackendException('Не удалось записать $name в папку данных.');
+        }
+        return;
+      }
+    }
     await _makeExecutable(destPath);
+    await _removeStale(destPath);
+  }
+
+  /// Moves the locked [dest] aside and renames [tmp] into its place.
+  Future<bool> _replaceLocked(File tmp, File dest) async {
+    final aside = File('${dest.path}.old-${DateTime.now().millisecondsSinceEpoch}');
+    try {
+      if (await dest.exists()) await dest.rename(aside.path);
+      await tmp.rename(dest.path);
+      return true;
+    } on FileSystemException {
+      if (!await dest.exists() && await aside.exists()) {
+        try {
+          await aside.rename(dest.path);
+        } on FileSystemException {
+          // Nothing more to do.
+        }
+      }
+      return false;
+    }
+  }
+
+  /// Deletes `.old-*` copies left by [_replaceLocked]. Ones still in use stay.
+  Future<void> _removeStale(String destPath) async {
+    final file = File(destPath);
+    final prefix = '${file.uri.pathSegments.last}.old-';
+    try {
+      await for (final entity in file.parent.list()) {
+        if (entity is File && entity.uri.pathSegments.last.startsWith(prefix)) {
+          try {
+            await entity.delete();
+          } on FileSystemException {
+            // Still running or locked: removed on a later run.
+          }
+        }
+      }
+    } on FileSystemException {
+      // Listing is best effort.
+    }
   }
 
   Future<void> _makeExecutable(String path) async {

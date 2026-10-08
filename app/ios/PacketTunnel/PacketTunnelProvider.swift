@@ -29,6 +29,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var splitServerIP: String?
     private var splitServerIPv6: String?
     private var splitRefreshTimer: DispatchSourceTimer?
+    // Только на routeQueue: применение маршрутов идёт по одному, остальные ждут в pendingReapplies.
+    private var reapplyInFlight = false
+    private var pendingReapplies: [() -> Void] = []
     private static let splitRefreshInterval: DispatchTimeInterval = .seconds(600)
     private static let splitResolveTimeout: TimeInterval = 2.0
 
@@ -91,7 +94,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let settings = makeNetworkSettings(serverIP: serverIPv4, plan: plan)
 
         setTunnelNetworkSettings(settings) { [weak self] error in
-            guard let self else { return }
+            guard let self else {
+                // Провайдер уже освобождён: система всё равно ждёт ответа.
+                completionHandler(TunnelProviderError.engine("Туннель остановлен до применения настроек."))
+                return
+            }
             if let error {
                 self.fail(error, completionHandler, prefix: "Ошибка сетевых настроек: ")
                 return
@@ -138,7 +145,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         stateLock.unlock()
         tunnelLog("Ядро: \(value)")
 
-        if value == "error" {
+        if value == "disconnected" && isRunning {
+            // Сессия Go завершилась сама (без stopTunnel): туннель без ядра только глотает трафик.
+            cancelTunnelWithError(nil)
+        } else if value == "error" {
             let msg = detail.isEmpty ? "Ошибка соединения" : detail
             let defaults = UserDefaults(suiteName: appGroupID) ?? .standard
             defaults.set(msg, forKey: "lastTunnelError")
@@ -213,6 +223,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
+        // Одно применение за раз. Иначе таймер на 600 с, прочитавший старый activeSplit, мог бы закончиться
+        // позже сообщения из приложения и вернуть старые правила. Запросы от пользователя ждут очереди,
+        // запрос таймера просто пропускается: следующий тик повторит.
+        if reapplyInFlight {
+            if force {
+                pendingReapplies.append { [weak self] in
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    self.reapplySplit(config, force: true, completion: completion)
+                }
+            } else {
+                completion(false)
+            }
+            return
+        }
+
         let plan = makeSplitPlan(config: config, serverIP: splitServerIP, serverIPv6: splitServerIPv6)
         if !force && plan.signature == appliedSplitSignature {
             completion(true)
@@ -220,6 +248,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         let settings = makeNetworkSettings(serverIP: splitServerIP, plan: plan)
+        reapplyInFlight = true
         setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self else {
                 completion(false)
@@ -229,12 +258,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if let error {
                     tunnelLog("ОШИБКА: не удалось обновить раздельное туннелирование: \(error.localizedDescription)")
                     completion(false)
-                    return
+                } else {
+                    self.activeSplit = config
+                    self.appliedSplitSignature = plan.signature
+                    tunnelLog("Раздельное туннелирование обновлено: \(self.describeSplit(config, plan))")
+                    completion(true)
                 }
-                self.activeSplit = config
-                self.appliedSplitSignature = plan.signature
-                tunnelLog("Раздельное туннелирование обновлено: \(self.describeSplit(config, plan))")
-                completion(true)
+                self.reapplyInFlight = false
+                let queued = self.pendingReapplies
+                self.pendingReapplies.removeAll()
+                for next in queued { next() }
             }
         }
     }
@@ -300,8 +333,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     ) {
         isRunning = false
         routeQueue.async { [weak self] in
-            self?.splitRefreshTimer?.cancel()
-            self?.splitRefreshTimer = nil
+            guard let self else { return }
+            self.splitRefreshTimer?.cancel()
+            self.splitRefreshTimer = nil
+            // Ждущие применения получат отказ (isRunning уже false), чтобы приложение не зависло на ответе.
+            let queued = self.pendingReapplies
+            self.pendingReapplies.removeAll()
+            for next in queued { next() }
         }
         engine.stop()
         let reasonStr = stopReasonString(reason)
@@ -404,7 +442,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 autoreleasepool {
                     let firstPacket: Data
                     do {
-                        firstPacket = try self.engine.receive(timeoutMilliseconds: 100)
+                        firstPacket = try self.engine.receive(timeoutMilliseconds: 500)
                     } catch {
                         // Сессия закрыта или сбой чтения: не крутим цикл вхолостую.
                         Thread.sleep(forTimeInterval: 0.1)
@@ -477,10 +515,17 @@ private final class EngineStatusListener: NSObject, MobileStatusListenerProtocol
 #endif
 
 private final class ObsidianPacketEngine {
-    private var sessionID: String?
+    // sessionID читают packetFlow-колбэк, очередь приёма и stopTunnel одновременно: доступ только под замком.
+    private let lock = NSLock()
+    private var storedSessionID: String?
     #if canImport(Obsidian)
     private var listener: EngineStatusListener?
     #endif
+
+    private var sessionID: String? {
+        get { lock.lock(); defer { lock.unlock() }; return storedSessionID }
+        set { lock.lock(); storedSessionID = newValue; lock.unlock() }
+    }
 
     func start(configJson: String, mtu: Int, onStatus: @escaping (String, String) -> Void) throws {
         #if canImport(Obsidian)
@@ -507,10 +552,14 @@ private final class ObsidianPacketEngine {
 
     func receive(timeoutMilliseconds: Int) throws -> Data {
         #if canImport(Obsidian)
-        guard let sessionID else { return Data() }
+        guard let sessionID else { throw TunnelProviderError.engine("Сессия остановлена.") }
         var error: NSError?
         let packet = MobileReceivePacket(sessionID, timeoutMilliseconds, &error) ?? Data()
-        if let error { throw TunnelProviderError.engine(error.localizedDescription) }
+        if let error {
+            // Таймаут ожидания пакета приходит из Go как context deadline exceeded: это пустой ответ, не сбой.
+            if error.localizedDescription.contains("deadline exceeded") { return Data() }
+            throw TunnelProviderError.engine(error.localizedDescription)
+        }
         return packet
         #else
         return Data()
@@ -519,19 +568,31 @@ private final class ObsidianPacketEngine {
 
     func stop() {
         #if canImport(Obsidian)
-        guard let sessionID else { return }
+        // Сначала снимаем идентификатор: параллельные inject и receive после этого сразу выходят.
+        lock.lock()
+        let id = storedSessionID
+        storedSessionID = nil
+        lock.unlock()
+        guard let id else { return }
         var error: NSError?
-        MobileStopTunnel(sessionID, &error)
-        self.sessionID = nil
+        MobileStopTunnel(id, &error)
         listener = nil
         #endif
     }
 }
 
-private func tunnelLog(_ message: String) {
+// Лог пишут сразу несколько очередей (routeQueue, receiveQueue, колбэки ядра): без замка обновления теряются.
+private let tunnelLogLock = NSLock()
+private let tunnelLogFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "HH:mm:ss"
-    let timestamp = formatter.string(from: Date())
+    return formatter
+}()
+
+private func tunnelLog(_ message: String) {
+    tunnelLogLock.lock()
+    defer { tunnelLogLock.unlock() }
+    let timestamp = tunnelLogFormatter.string(from: Date())
     let line = "[\(timestamp)] [Tunnel] \(message)"
 
     let defaults = UserDefaults(suiteName: appGroupID) ?? .standard

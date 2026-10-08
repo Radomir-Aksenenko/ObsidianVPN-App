@@ -52,6 +52,36 @@ const String kBinExistsCmd =
     'test -f $kServerBin && echo EXISTS || echo NO';
 const String kInstallExistsCmd =
     'test -f $kServerBin && test -f $kServerConfig && echo OK || echo MISSING';
+
+/// Prints EXISTS when the install directory is already on the server. A deploy that
+/// did not create it must never delete it on rollback.
+const String kServerDirExistsCmd = 'test -e $kServerDir && echo EXISTS || echo NO';
+
+/// Prints the numeric user id. Everything below needs root (apt, docker, iptables).
+const String kUidCmd = 'id -u';
+
+/// Succeeds when the docker daemon answers, starting it once when it does not.
+const String kDockerReadyCmd =
+    'docker info >/dev/null 2>&1 || (systemctl start docker >/dev/null 2>&1; sleep 3; '
+    'docker info >/dev/null 2>&1)';
+
+/// Pulling a base image can take long on a slow VPS.
+const Duration kDockerRunTimeout = Duration(minutes: 10);
+
+/// Files a deploy writes inside [kServerDir].
+const List<String> kDeployFiles = [
+  kServerBin,
+  kServerConfig,
+  kVersionFile,
+  kKeyserverScript,
+];
+
+/// Undo of a failed deploy. When this deploy created [kServerDir] the whole directory
+/// goes. When the directory was already there (leftovers of an earlier attempt, or other
+/// data), only the files this deploy wrote are removed.
+String rollbackFilesCmd({required bool dirExisted}) => dirExisted
+    ? 'rm -f ${kDeployFiles.join(' ')} 2>/dev/null || true'
+    : 'rm -rf $kServerDir 2>/dev/null || true';
 const String kReadVersionFileCmd = 'cat $kVersionFile 2>/dev/null || echo MISSING';
 const String kReadConfigCmd = 'cat $kServerConfig';
 const String kVpnPidsCmd = 'docker top $kVpnContainer -o pid 2>/dev/null';
@@ -161,6 +191,8 @@ class PortOwner {
   String toString() => 'PortOwner($use, $who)';
 }
 
+const Set<String> _ssNetids = {'tcp', 'udp', 'tcp6', 'udp6'};
+
 /// Reads `ss -lntp` / `ss -lnup` output and decides who holds exactly [port].
 /// Sockets of obsidian-server, or of a pid in [vpnPids] (processes of the VPN
 /// container, which runs with --network host), count as ours.
@@ -170,9 +202,11 @@ PortOwner parseSsListing(String out, String port, {Set<String> vpnPids = const {
   final foreign = <String>[];
   for (final line in out.split('\n')) {
     final cols = line.trim().split(RegExp(r'\s+'));
-    if (cols.length < 4) continue;
-    // The local address is the 4th column; the port is the part after the last ':'.
-    if (cols[3].split(':').last != port) continue;
+    // The local address is the 4th column, or the 5th when ss prints a Netid column
+    // ("tcp LISTEN 0 128 0.0.0.0:443 ..."). The port is the part after the last ':'.
+    final at = _ssNetids.contains(cols[0]) ? 4 : 3;
+    if (cols.length <= at) continue;
+    if (cols[at].split(':').last != port) continue;
     listed = true;
     final usersAt = line.indexOf('users:((');
     final users = usersAt < 0 ? '' : line.substring(usersAt);

@@ -166,12 +166,17 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
     );
     if (outcome == null || !mounted) return;
     final status = outcome.value;
-    await state.updateVpsProfile(
-      widget.profileId,
-      hostKey: outcome.hostKey,
-      serverVersion: status.version,
-      needsUpdate: !status.upToDate,
-    );
+    try {
+      await state.updateVpsProfile(
+        widget.profileId,
+        hostKey: outcome.hostKey,
+        serverVersion: status.version,
+        needsUpdate: !status.upToDate,
+      );
+    } on AppStateException catch (e) {
+      if (mounted) showObsToast(context, e.messageRu, kind: ObsToastKind.error);
+      return;
+    }
     if (!mounted) return;
     showObsToast(
       context,
@@ -213,32 +218,19 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
     final l = AppLocalizations.of(context);
     final current = _creds;
     if (current == null) return;
-    final form = SshFormController(initial: current);
-    final saved = await showAdaptiveSheet<VpsCredentials>(context, (ctx) {
-      return ObsSheet(
-        title: l.vpsSshSection,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SshForm(controller: form),
-            const SizedBox(height: Space.s24),
-            ObsButton(
-              label: l.vpsSaveSsh,
-              onPressed: () {
-                final creds = form.build(l);
-                if (creds != null) Navigator.of(ctx).pop(creds);
-              },
-            ),
-          ],
-        ),
-      );
-    });
-    form.dispose();
+    final saved = await showAdaptiveSheet<VpsCredentials>(
+      context,
+      (ctx) => _SshEditSheet(initial: current),
+    );
     if (saved == null || !mounted) return;
     final state = AppState.of(context);
-    await state.updateVpsProfile(widget.profileId, creds: saved);
-    await _reloadCreds();
+    try {
+      await state.updateVpsProfile(widget.profileId, creds: saved);
+      await _reloadCreds();
+    } catch (_) {
+      if (mounted) showObsToast(context, l.vpsErrorGeneric, kind: ObsToastKind.error);
+      return;
+    }
     if (!mounted) return;
     showObsToast(context, l.vpsSshSaved, kind: ObsToastKind.success);
   }
@@ -263,11 +255,18 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
     );
     if (outcome == null || !mounted) return;
     final result = outcome.value;
-    final removed = await state.applyVpsReset(
-      widget.profileId,
-      result,
-      hostKey: outcome.hostKey,
-    );
+    final int removed;
+    try {
+      removed = await state.applyVpsReset(
+        widget.profileId,
+        result,
+        hostKey: outcome.hostKey,
+      );
+    } catch (_) {
+      // The server is already reset. Without the new owner key the profile is stale.
+      if (mounted) showObsToast(context, l.vpsErrorGeneric, kind: ObsToastKind.error);
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _ipv6 = result.ownerConfig.enableIpv6;
@@ -291,6 +290,14 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
       await _saveOwner(state, hostKey: hostKey, sni: sni, ipv6: ipv6);
     } on VpsException catch (e) {
       if (mounted) showObsToast(context, e.messageRu, kind: ObsToastKind.error);
+    } catch (_) {
+      if (mounted) {
+        showObsToast(
+          context,
+          AppLocalizations.of(context).vpsErrorGeneric,
+          kind: ObsToastKind.error,
+        );
+      }
     }
   }
 
@@ -426,6 +433,50 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
           onPressed: canManage ? _reset : null,
         ),
       ],
+    );
+  }
+}
+
+/// SSH access editor. Owns its form controller, so the text fields are disposed with the
+/// sheet and not while the sheet is still animating out.
+class _SshEditSheet extends StatefulWidget {
+  const _SshEditSheet({required this.initial});
+
+  final VpsCredentials initial;
+
+  @override
+  State<_SshEditSheet> createState() => _SshEditSheetState();
+}
+
+class _SshEditSheetState extends State<_SshEditSheet> {
+  late final SshFormController _form = SshFormController(initial: widget.initial);
+
+  @override
+  void dispose() {
+    _form.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return ObsSheet(
+      title: l.vpsSshSection,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SshForm(controller: _form),
+          const SizedBox(height: Space.s24),
+          ObsButton(
+            label: l.vpsSaveSsh,
+            onPressed: () {
+              final creds = _form.build(l);
+              if (creds != null) Navigator.of(context).pop(creds);
+            },
+          ),
+        ],
+      ),
     );
   }
 }

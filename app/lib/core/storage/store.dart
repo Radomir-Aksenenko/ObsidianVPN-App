@@ -196,7 +196,7 @@ final class AppStore {
     final file = File(_join(dir, kStateFileName));
 
     if (await file.exists()) {
-      final parsed = _parseStateFile(await file.readAsString());
+      final parsed = _parseStateFile(await _readStateText(file));
       if (parsed != null) {
         final loaded = await _loadState(parsed, secrets);
         final store = AppStore._(
@@ -354,6 +354,19 @@ final class _Loaded {
   final List<String> notices;
 }
 
+/// Reads state.json. Returns an empty string when the bytes are not valid UTF-8
+/// or the file cannot be read, so the caller treats it as corrupted and moves it
+/// aside instead of failing to start.
+Future<String> _readStateText(File file) async {
+  try {
+    return await file.readAsString();
+  } on FormatException {
+    return '';
+  } on FileSystemException {
+    return '';
+  }
+}
+
 /// Parses state.json text. Returns null when the JSON is invalid, is not an
 /// object, or has a schema version this build does not know.
 _StateFile? _parseStateFile(String text) {
@@ -385,7 +398,8 @@ Future<_Loaded> _loadState(_StateFile parsed, SecretStore secrets) async {
   for (final json in parsed.profiles) {
     try {
       profiles.add(ServerProfile.fromJson(json));
-    } on FormatException {
+    } on Object {
+      // FormatException for a bad id/host/port, TypeError for a mangled field.
       skipped++;
     }
   }
@@ -584,7 +598,17 @@ Future<void> _writeAtomic(String dir, String body) async {
   final target = File(_join(dir, kStateFileName));
   final temp = File('${target.path}.tmp');
   await temp.writeAsString(body, flush: true);
-  await temp.rename(target.path);
+  // On Windows the rename can fail for a moment when an antivirus scanner or the
+  // indexer holds the target open, so it is retried before giving up.
+  for (var attempt = 0;; attempt++) {
+    try {
+      await temp.rename(target.path);
+      return;
+    } on FileSystemException {
+      if (attempt >= 4) rethrow;
+      await Future<void>.delayed(Duration(milliseconds: 40 * (attempt + 1)));
+    }
+  }
 }
 
 Future<String?> _readLegacyText(String dir, String name) async {

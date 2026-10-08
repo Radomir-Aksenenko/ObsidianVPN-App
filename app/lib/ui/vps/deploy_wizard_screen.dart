@@ -35,8 +35,15 @@ class _DeployWizardScreenState extends State<DeployWizardScreen> {
   String? _sniError;
   DeployResult? _result;
 
+  /// True while the deploy stream runs.
+  final ValueNotifier<bool> _busy = ValueNotifier<bool>(true);
+
+  /// True while the finished deploy is being saved on this device.
+  bool _saving = false;
+
   @override
   void dispose() {
+    _busy.dispose();
     _ssh.dispose();
     _sni.dispose();
     super.dispose();
@@ -65,15 +72,26 @@ class _DeployWizardScreenState extends State<DeployWizardScreen> {
   }
 
   Future<void> _onDeployed(DeployOutcome<DeployResult> outcome) async {
+    final l = AppLocalizations.of(context);
     final state = AppState.of(context);
     final result = outcome.value;
-    final profile = await state.saveVpsProfile(result, _creds!, hostKey: outcome.hostKey);
-    await state.selectProfile(profile.id);
+    setState(() => _saving = true);
+    var saved = true;
+    try {
+      final profile = await state.saveVpsProfile(result, _creds!, hostKey: outcome.hostKey);
+      await state.selectProfile(profile.id);
+    } catch (_) {
+      saved = false;
+    }
     if (!mounted) return;
     setState(() {
+      _saving = false;
       _result = result;
       _step = _WizardStep.done;
     });
+    // The server is installed. The token page must still be shown even when the
+    // local save failed, because the admin token exists only here.
+    if (!saved) showObsToast(context, l.vpsErrorGeneric, kind: ObsToastKind.error);
   }
 
   /// Leaving during the install asks first, because the server would be left half-installed.
@@ -93,11 +111,17 @@ class _DeployWizardScreenState extends State<DeployWizardScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    return PopScope(
-      canPop: _step != _WizardStep.progress,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _confirmLeave();
-      },
+    return ValueListenableBuilder<bool>(
+      valueListenable: _busy,
+      builder: (context, busy, child) => PopScope(
+        // Leaving asks only while the install runs or is being saved. After a failure
+        // there is nothing half-installed to warn about.
+        canPop: _step != _WizardStep.progress || (!busy && !_saving),
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _confirmLeave();
+        },
+        child: child!,
+      ),
       child: switch (_step) {
         _WizardStep.form => _formPage(l),
         _WizardStep.progress => VpsPage(
@@ -105,6 +129,7 @@ class _DeployWizardScreenState extends State<DeployWizardScreen> {
             children: [
               DeployProgressView<DeployResult>(
                 start: _start,
+                busy: _busy,
                 cancellable: true,
                 onCancel: () => Navigator.of(context).pop(),
                 onDone: _onDeployed,

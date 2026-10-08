@@ -291,4 +291,49 @@ void main() {
     expect(store.profiles, hasLength(2));
     expect(store.notices, isNotEmpty);
   });
+
+  test('a state.json with invalid UTF-8 is moved aside instead of crashing', () async {
+    Directory(dir).createSync(recursive: true);
+    File('$dir${Platform.pathSeparator}state.json')
+        .writeAsBytesSync(<int>[0x7b, 0x22, 0xff, 0xfe, 0xc3, 0x28, 0x7d]);
+
+    final store = await AppStore.open(dir: dir, secrets: MemorySecretStore());
+
+    expect(store.profiles, isEmpty);
+    expect(store.notices, isNotEmpty);
+    expect(File('$dir${Platform.pathSeparator}state.json.bad').existsSync(), isTrue);
+  });
+
+  test('a profile with mangled field types is skipped, the rest still loads', () async {
+    final good = {
+      'id': 'good-1',
+      'name': 'Good',
+      'host': 'good.example.net',
+      'port': 443,
+      'server_public_key': 'ab' * 32,
+    };
+    final bad = {
+      'id': 'bad-1',
+      'host': 'bad.example.net',
+      'port': 443,
+      'vps': {'host': 'x', 'port': 22, 'user': 'root'},
+      'split': 'not-a-map',
+      'created_at': 12,
+    };
+    final mangled = {'id': 'bad-2', 'host': 'h', 'port': 443, 'vps': 5, 'is_favorite': 'yes'};
+    Directory(dir).createSync(recursive: true);
+    File('$dir${Platform.pathSeparator}state.json').writeAsStringSync(
+      jsonEncode({
+        'schema': 1,
+        'device_id': _deviceId,
+        'settings': {},
+        'profiles': [good, bad, mangled],
+        'issued_keys': [],
+      }),
+    );
+
+    final store = await AppStore.open(dir: dir, secrets: MemorySecretStore());
+
+    expect(store.profiles.map((p) => p.id), contains('good-1'));
+  });
 }

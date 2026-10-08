@@ -137,15 +137,21 @@ enum DomainResolver {
 
         let results = LookupResults()
         let group = DispatchGroup()
-        let queue = DispatchQueue.global(qos: .utility)
+        // Не больше 6 одновременных getaddrinfo: каждый блокирует поток, а памяти в расширении мало.
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 6
+        queue.qualityOfService = .utility
         for host in hosts {
             group.enter()
-            queue.async {
+            queue.addOperation {
+                defer { group.leave() }
+                // После таймаута оставшиеся имена не резолвим.
+                if results.isClosed { return }
                 results.append(lookupAddresses(host))
-                group.leave()
             }
         }
         _ = group.wait(timeout: .now() + timeout)
+        results.close()
         return results.snapshot()
     }
 
@@ -187,10 +193,24 @@ enum DomainResolver {
 private final class LookupResults {
     private let lock = NSLock()
     private var addresses = Set<String>()
+    private var closed = false
+
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
+    /// После закрытия поздние ответы не попадают в результат.
+    func close() {
+        lock.lock()
+        closed = true
+        lock.unlock()
+    }
 
     func append(_ found: [String]) {
         lock.lock()
-        addresses.formUnion(found)
+        if !closed { addresses.formUnion(found) }
         lock.unlock()
     }
 

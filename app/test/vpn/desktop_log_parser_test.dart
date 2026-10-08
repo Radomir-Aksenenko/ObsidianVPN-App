@@ -288,4 +288,14 @@ void main() {
       }
     });
   });
+
+  test('humanizeExit explains a dismissed or refused pkexec prompt', () {
+    for (final line in [
+      'Error executing command as another user: Not authorized',
+      'Error executing command as another user: Request dismissed',
+    ]) {
+      expect(humanizeExit([line]), contains('администратора'));
+      expect(humanizeExit([line]), isNot(contains('Wintun')));
+    }
+  });
 }

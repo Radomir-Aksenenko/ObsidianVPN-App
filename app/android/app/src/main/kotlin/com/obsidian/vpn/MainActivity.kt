@@ -22,6 +22,9 @@ class MainActivity : FlutterActivity() {
 
     private var pendingPrepare: MethodChannel.Result? = null
 
+    // The sink handed to the stream handler, so onCancel removes exactly that listener.
+    private var currentSink: EventChannel.EventSink? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
@@ -30,13 +33,19 @@ class MainActivity : FlutterActivity() {
         }
         EventChannel(messenger, EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                currentSink = events
                 VpnBridge.attach(events)
             }
 
             override fun onCancel(arguments: Any?) {
-                VpnBridge.detach()
+                currentSink?.let { VpnBridge.detach(it) }
             }
         })
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        VpnBridge.detachAll()
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -94,7 +103,13 @@ class MainActivity : FlutterActivity() {
             pendingPrepare = null
             pending.success(true)
         } else {
-            startActivityForResult(consent, REQUEST_VPN_CONSENT)
+            try {
+                startActivityForResult(consent, REQUEST_VPN_CONSENT)
+            } catch (e: ActivityNotFoundException) {
+                // Some devices (TV, restricted profiles) have no VPN consent dialog.
+                pendingPrepare = null
+                pending.error("prepare_failed", e.message ?: "VPN consent dialog is unavailable", null)
+            }
         }
     }
 
@@ -103,8 +118,9 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_VPN_CONSENT) {
             val granted = resultCode == RESULT_OK
-            pendingPrepare?.success(granted)
+            val pending = pendingPrepare
             pendingPrepare = null
+            pending?.success(granted)
         }
     }
 
@@ -131,8 +147,8 @@ class MainActivity : FlutterActivity() {
             return
         }
         guardedStart(result) {
-            VpnBridge.lastRequest = request
             ObsidianVpnService.start(this, request)
+            VpnBridge.lastRequest = request
         }
     }
 
@@ -151,8 +167,8 @@ class MainActivity : FlutterActivity() {
         // Restart with the new config: the service tears the old session down first.
         val updated = current.copy(configJson = configJson)
         guardedStart(result) {
-            VpnBridge.lastRequest = updated
             ObsidianVpnService.start(this, updated)
+            VpnBridge.lastRequest = updated
         }
     }
 

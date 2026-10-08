@@ -28,6 +28,51 @@ void main() {
     expect(shellQuote("it's"), "'it'\\''s'");
   });
 
+  group('run configs', () {
+    late Directory dir;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('obsidian-config-test-');
+    });
+
+    tearDown(() {
+      dir.deleteSync(recursive: true);
+    });
+
+    test('deleteConfigFile removes a written config and ignores a missing file', () async {
+      final rt = DesktopRuntime(dir.path);
+      Directory(rt.runtimePath).createSync(recursive: true);
+      final path = await rt.writeConfig('profile-1', '{"client_private_key":"aa"}');
+      expect(File(path).existsSync(), isTrue);
+
+      DesktopRuntime.deleteConfigFile(path);
+      expect(File(path).existsSync(), isFalse);
+
+      DesktopRuntime.deleteConfigFile(path);
+    });
+
+    test('deleteStaleConfigs removes json configs and keeps the other runtime files', () async {
+      final rt = DesktopRuntime(dir.path);
+      Directory(rt.runtimePath).createSync(recursive: true);
+      await rt.writeConfig('stale-a', '{}');
+      await rt.writeConfig('stale-b', '{}');
+      File(rt.pathFor('stale-a', '.run.log')).writeAsStringSync('log');
+      File(rt.pathFor('stale-a', '.stdin')).writeAsStringSync('');
+
+      await rt.deleteStaleConfigs();
+
+      expect(File(rt.pathFor('stale-a', '.json')).existsSync(), isFalse);
+      expect(File(rt.pathFor('stale-b', '.json')).existsSync(), isFalse);
+      expect(File(rt.pathFor('stale-a', '.run.log')).existsSync(), isTrue);
+      expect(File(rt.pathFor('stale-a', '.stdin')).existsSync(), isTrue);
+    });
+
+    test('deleteStaleConfigs does nothing when the runtime folder is missing', () async {
+      await DesktopRuntime(dir.path).deleteStaleConfigs();
+      expect(Directory(DesktopRuntime(dir.path).runtimePath).existsSync(), isFalse);
+    });
+  });
+
   group('ClientLogFile', () {
     late Directory dir;
 

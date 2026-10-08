@@ -61,9 +61,16 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
+    // Only this screen rebuilds on new log lines, not the whole app.
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: state.logsListenable,
+      builder: (context, lines, _) => _buildScreen(context, state, lines),
+    );
+  }
+
+  Widget _buildScreen(BuildContext context, AppState state, List<String> lines) {
     final l10n = AppLocalizations.of(context);
     final c = context.obs.colors;
-    final lines = state.logs;
     final gutter = MediaQuery.sizeOf(context).width >= 720
         ? Space.gutterWide
         : Space.gutterNarrow;
