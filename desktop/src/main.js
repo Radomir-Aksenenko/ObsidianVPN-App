@@ -1780,7 +1780,11 @@ document.addEventListener("click", async (e) => {
     render();
     try {
       state.data = await invoke("update_server_firmware", { serverId });
-      showToast("Ядро сервера успешно обновлено");
+      const updated = state.data.profiles.find((x) => x.id === serverId);
+      const ports = updated
+        ? `TCP ${updated.config?.server_port || "?"}, UDP ${updated.config?.udp_port || "?"}`
+        : "";
+      showToast(ports ? `Ядро сервера обновлено: ${ports}` : "Ядро сервера успешно обновлено");
       invoke("set_taskbar_progress", { progress: null, stateName: "none" }).catch(() => {});
     } catch (err) {
       invoke("set_taskbar_progress", { progress: 100, stateName: "error" }).catch(() => {});

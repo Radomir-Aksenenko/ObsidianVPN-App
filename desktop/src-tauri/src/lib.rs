@@ -256,17 +256,21 @@ async fn start_update(app: AppHandle, req: DeployReq) -> Result<AppStateDto, Str
                 .insert("server_port".into(), json!(result.server_port.clone()));
             p.config
                 .insert("udp_port".into(), json!(result.udp_port.clone()));
-            p.config.insert("reality_enabled".into(), json!(true));
-            p.config.insert(
-                "reality_auth_key".into(),
-                json!(result.reality_auth_key.clone()),
-            );
+            // REALITY keys change only when the server actually runs REALITY after the update.
             p.config
-                .insert("reality_sni".into(), json!(result.reality_sni.clone()));
-            p.config
-                .insert("sni".into(), json!(result.reality_sni.clone()));
-            p.config.insert("no_tls".into(), json!(false));
-            p.config.insert("fingerprint".into(), json!("chrome"));
+                .insert("reality_enabled".into(), json!(result.reality_enabled));
+            if result.reality_enabled {
+                p.config.insert(
+                    "reality_auth_key".into(),
+                    json!(result.reality_auth_key.clone()),
+                );
+                p.config
+                    .insert("reality_sni".into(), json!(result.reality_sni.clone()));
+                p.config
+                    .insert("sni".into(), json!(result.reality_sni.clone()));
+                p.config.insert("no_tls".into(), json!(false));
+                p.config.insert("fingerprint".into(), json!("chrome"));
+            }
             p.config.insert("enable_ipv6".into(), json!(result.enable_ipv6));
 
             if let Some(ref pwd) = saved_password {
@@ -297,7 +301,7 @@ async fn start_update(app: AppHandle, req: DeployReq) -> Result<AppStateDto, Str
                 max_devices: p.max_devices,
                 enable_udp_data: true,
                 mtu: keys::SAFE_MTU,
-                reality_enabled: true,
+                reality_enabled: result.reality_enabled,
                 reality_auth_key: result.reality_auth_key.clone(),
                 reality_sni: result.reality_sni.clone(),
                 enable_ipv6: result.enable_ipv6,

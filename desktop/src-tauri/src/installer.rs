@@ -62,6 +62,7 @@ pub struct DeployResult {
 pub struct UpdateResult {
     pub server_port: String,
     pub udp_port: String,
+    pub reality_enabled: bool,
     pub reality_auth_key: String,
     pub reality_sni: String,
     pub enable_ipv6: bool,
@@ -113,8 +114,8 @@ impl Session {
         let _ = self.app.emit("deploy-progress", pct);
     }
 
-    async fn run(&self, cmd: &str, check: bool) -> Result<String, String> {
-        self.log(&format!("$ {cmd}"));
+    /// Runs a command on the server. Returns (stdout, stderr, exit code) without logging.
+    async fn exec_raw(&self, cmd: &str) -> Result<(String, String, u32), String> {
         let mut ch = self
             .handle
             .channel_open_session()
@@ -133,12 +134,18 @@ impl Session {
                 _ => {}
             }
         }
-        let out = String::from_utf8_lossy(&stdout).trim().to_string();
-        let err = String::from_utf8_lossy(&stderr).trim().to_string();
-        if !out.is_empty() {
-            for line in out.lines() {
-                self.log(line);
-            }
+        Ok((
+            String::from_utf8_lossy(&stdout).trim().to_string(),
+            String::from_utf8_lossy(&stderr).trim().to_string(),
+            code,
+        ))
+    }
+
+    async fn run(&self, cmd: &str, check: bool) -> Result<String, String> {
+        self.log(&format!("$ {cmd}"));
+        let (out, err, code) = self.exec_raw(cmd).await?;
+        for line in out.lines() {
+            self.log(line);
         }
         if !err.is_empty() {
             self.log(&format!("[stderr] {err}"));
@@ -147,6 +154,31 @@ impl Session {
             return Err(format!("Command failed (exit {code}): {cmd}\n{err}"));
         }
         Ok(out)
+    }
+
+    /// Like `run(cmd, true)` but the output is not written to the log (used for secrets).
+    async fn run_quiet(&self, cmd: &str) -> Result<String, String> {
+        let (out, err, code) = self.exec_raw(cmd).await?;
+        if code != 0 {
+            return Err(format!("Команда на сервере завершилась с ошибкой ({code}): {err}"));
+        }
+        Ok(out)
+    }
+
+    /// Host PIDs of the processes inside the VPN container (it runs with --network host).
+    async fn vpn_pids(&self) -> Vec<String> {
+        match self
+            .exec_raw(&format!("docker top {VPN_CONTAINER} -o pid 2>/dev/null"))
+            .await
+        {
+            Ok((out, _, 0)) => out
+                .lines()
+                .skip(1)
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     async fn upload_bytes(&self, data: &[u8], remote: &str) -> Result<(), String> {
@@ -339,97 +371,145 @@ async fn probe_ipv6_connectivity(s: &Session) -> bool {
     ok
 }
 
+//// Fallback port used when 443 is taken by another service on the host.
+const ALT_PORT: &str = "8443";
+
+/// What the update writes to the server config. Decided before anything is uploaded.
+struct UpdatePlan {
+    tcp: String,
+    udp: String,
+    migrate_reality: bool,
+    sni: String,
+    enable_ipv6: bool,
+}
+
+fn json_port(cfg: &serde_json::Value, key: &str) -> Option<String> {
+    match cfg.get(key)? {
+        serde_json::Value::String(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 /// Replace the VPN binary and keyserver on an existing install. Server keys stay.
-/// Also switches listen port to 443 and turns REALITY on, without minting new VPN keys.
+///
+/// Ports are chosen from what is actually free on the host: TCP/UDP 443 when it is free or
+/// held by our own unit, otherwise the port already in the config. REALITY is switched on
+/// only when the TCP port moves to 443. Nothing is uploaded until all checks have passed.
 pub async fn update_firmware(app: AppHandle, req: DeployReq) -> Result<UpdateResult, String> {
     let s = ssh_open(app.clone(), &req).await?;
     s.progress(16);
     let exists = s
-        .run(&format!("test -f {SERVER_BIN} && echo OK || echo MISSING"), false)
+        .run(
+            &format!("test -f {SERVER_BIN} && test -f {SERVER_CONFIG} && echo OK || echo MISSING"),
+            false,
+        )
         .await?;
     if !exists.contains("OK") {
-        return Err("No Obsidian install on this host. Deploy a server first.".into());
+        return Err("На этом хосте нет установки Obsidian. Сначала разверните сервер.".into());
     }
 
     let (server_bin, keyserver) = runtime_files(&app)?;
-    s.log("uploading new server binary");
-    s.progress(35);
-    s.run(
-        &format!("cp -f {SERVER_BIN} {SERVER_BIN}.bak 2>/dev/null || true"),
-        false,
-    )
-    .await?;
-    let bin_bytes = std::fs::read(&server_bin).map_err(|e| e.to_string())?;
-    s.log(&format!("firmware {} bytes", bin_bytes.len()));
-    s.upload_bytes(&bin_bytes, SERVER_BIN).await?;
-    s.run(&format!("chmod +x {SERVER_BIN}"), true).await?;
-    let bin_hash = hex::encode(Sha256::digest(&bin_bytes));
-    let ver_str = format!("0.1.0\n{bin_hash}\n");
-    let _ = s.upload_bytes(ver_str.as_bytes(), "/opt/obsidian/version.txt").await;
-    s.progress(62);
 
-    if keyserver.exists() {
-        s.log("uploading keyserver");
-        let ks_bytes = std::fs::read(&keyserver).map_err(|e| e.to_string())?;
-        s.upload_bytes(&ks_bytes, KEYSERVER_SCRIPT).await?;
-    }
-    s.progress(78);
+    // Preflight: read the current config and pick ports. No uploads happen before this.
+    let cfg_text = s.run_quiet(&format!("cat {SERVER_CONFIG}")).await?;
+    let cfg: serde_json::Value = serde_json::from_str(&cfg_text)
+        .map_err(|e| format!("Не удалось прочитать конфиг сервера: {e}"))?;
+    let cur_tcp = json_port(&cfg, "port").unwrap_or_else(|| "443".into());
+    let cur_udp = json_port(&cfg, "udp_port").unwrap_or_else(|| cur_tcp.clone());
 
-    s.log("ensuring python3");
     s.run(
         "command -v python3 >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3)",
         true,
     )
     .await?;
-
     let enable_ipv6 = probe_ipv6_connectivity(&s).await;
-    let py_enable_ipv6 = if enable_ipv6 { "True" } else { "False" };
-    let sni = mask_sni(&req);
-    assert_listen_free(&s, "443").await?;
-    s.log(&format!("switching to REALITY on :443, mask {sni}"));
-    let migrate = format!(
-        r#"python3 - <<'PY'
-import json, os, secrets
-path = "{SERVER_CONFIG}"
-sni = {sni:?}
-enable_ipv6 = {py_enable_ipv6}
-cfg = json.load(open(path))
-cfg["port"] = "443"
-cfg["udp_port"] = "443"
-cfg["no_tls"] = False
-cfg.pop("cert_file", None)
-cfg.pop("key_file", None)
-cfg["reality_target"] = sni + ":443"
-cfg["reality_backend"] = sni + ":443"
-cfg["reality_backend_sni"] = sni
-cfg["reality_server_names"] = [sni]
-cfg["enable_ipv6"] = enable_ipv6
-auth = str(cfg.get("reality_auth_key") or "").strip()
-if len(auth) < 32:
-    auth = secrets.token_hex(32)
-    cfg["reality_auth_key"] = auth
-json.dump(cfg, open(path, "w"), indent=2)
-print("AUTH=" + auth)
-print("SNI=" + sni)
-print("PORT=443")
-PY"#
-    );
-    let migrated = s.run(&migrate, true).await?;
+    let vpn_pids = s.vpn_pids().await;
+    let tcp = pick_port(&s, "tcp", &["443", &cur_tcp, ALT_PORT], &vpn_pids).await?;
+    let udp = pick_port(&s, "udp", &["443", &cur_udp, ALT_PORT], &vpn_pids).await?;
+    let plan = UpdatePlan {
+        migrate_reality: tcp == "443",
+        sni: mask_sni(&req),
+        tcp,
+        udp,
+        enable_ipv6,
+    };
+    if plan.migrate_reality {
+        s.log(&format!(
+            "ports: TCP {}, UDP {}, REALITY on, mask {}",
+            plan.tcp, plan.udp, plan.sni
+        ));
+    } else {
+        s.log(&format!(
+            "ports: TCP {}, UDP {}, REALITY settings unchanged",
+            plan.tcp, plan.udp
+        ));
+    }
+    s.progress(30);
+
+    // The backups are the rollback point for everything that follows.
+    s.run(
+        &format!("cp -f {SERVER_BIN} {SERVER_BIN}.bak && cp -f {SERVER_CONFIG} {SERVER_CONFIG}.bak"),
+        true,
+    )
+    .await?;
+
+    match apply_update(&s, &server_bin, &keyserver, &plan).await {
+        Ok(result) => {
+            s.log("firmware updated");
+            s.progress(100);
+            Ok(result)
+        }
+        Err(e) => {
+            restore_previous(&s).await;
+            Err(e)
+        }
+    }
+}
+
+async fn apply_update(
+    s: &Session,
+    server_bin: &PathBuf,
+    keyserver: &PathBuf,
+    plan: &UpdatePlan,
+) -> Result<UpdateResult, String> {
+    s.log("uploading new server binary");
+    s.progress(35);
+    let bin_bytes = std::fs::read(server_bin).map_err(|e| e.to_string())?;
+    s.log(&format!("firmware {} bytes", bin_bytes.len()));
+    s.upload_bytes(&bin_bytes, SERVER_BIN).await?;
+    s.run(&format!("chmod +x {SERVER_BIN}"), true).await?;
+    s.progress(55);
+
+    if keyserver.exists() {
+        s.log("uploading keyserver");
+        let ks_bytes = std::fs::read(keyserver).map_err(|e| e.to_string())?;
+        s.upload_bytes(&ks_bytes, KEYSERVER_SCRIPT).await?;
+    }
+    s.progress(70);
+
+    s.log("writing server config");
+    let out = s.run_quiet(&update_config_script(plan)).await?;
     let mut auth = String::new();
-    for line in migrated.lines() {
+    let mut sni = String::new();
+    let mut reality = false;
+    for line in out.lines() {
         if let Some(v) = line.strip_prefix("AUTH=") {
             auth = v.trim().to_string();
+        } else if let Some(v) = line.strip_prefix("SNI=") {
+            sni = v.trim().to_string();
+        } else if let Some(v) = line.strip_prefix("REALITY=") {
+            reality = v.trim() == "1";
         }
     }
     s.progress(78);
 
-    s.log("opening 443, closing 8443");
     let iface = s
         .run("ip route show default | awk '/default/{print $5}' | head -1", false)
         .await?;
     let iface = if iface.is_empty() { "eth0".into() } else { iface };
-    close_legacy_ports(&s).await?;
-    setup_nat(&s, &iface, "443", enable_ipv6).await?;
+    close_legacy_ports(s, &[("tcp", plan.tcp.as_str()), ("udp", plan.udp.as_str())]).await?;
+    setup_nat(s, &iface, &plan.tcp, &plan.udp, plan.enable_ipv6).await?;
 
     s.log("restarting vpn unit");
     s.run(&format!("docker restart {VPN_CONTAINER}"), true).await?;
@@ -451,18 +531,10 @@ PY"#
         )
         .await?;
     if !running.to_lowercase().contains("true") {
-        s.log("restart failed, restoring previous binary");
-        let _ = s
-            .run(
-                &format!("cp -f {SERVER_BIN}.bak {SERVER_BIN} 2>/dev/null || true"),
-                false,
-            )
-            .await;
-        let _ = s.run(&format!("docker restart {VPN_CONTAINER}"), false).await;
         let logs = s
             .run(&format!("docker logs --tail 80 {VPN_CONTAINER} 2>&1"), false)
             .await?;
-        return Err(format!("VPN container did not come back.\n{logs}"));
+        return Err(format!("Контейнер VPN не запустился после обновления.\n{logs}"));
     }
     let logs = s
         .run(&format!("docker logs --tail 20 {VPN_CONTAINER} 2>&1"), false)
@@ -473,20 +545,73 @@ PY"#
             s.log(line);
         }
     }
-    s.log("firmware updated");
-    s.progress(100);
+
     Ok(UpdateResult {
-        server_port: "443".into(),
-        udp_port: "443".into(),
+        server_port: plan.tcp.clone(),
+        udp_port: plan.udp.clone(),
+        reality_enabled: reality,
         reality_auth_key: auth,
         reality_sni: sni,
-        enable_ipv6,
+        enable_ipv6: plan.enable_ipv6,
     })
+}
+
+/// Python run on the server: rewrites the config atomically. REALITY keys are only touched
+/// when the plan migrates REALITY to the TCP port; otherwise they stay as they are.
+fn update_config_script(plan: &UpdatePlan) -> String {
+    let tcp = plan.tcp.as_str();
+    let udp = plan.udp.as_str();
+    let ipv6 = if plan.enable_ipv6 { "True" } else { "False" };
+    let migrate = if plan.migrate_reality { "True" } else { "False" };
+    let sni = format!("{:?}", plan.sni);
+    format!(
+        r#"python3 - <<'PY'
+import json, os, secrets
+path = "{SERVER_CONFIG}"
+tmp = path + ".tmp"
+with open(path) as f:
+    cfg = json.load(f)
+cfg["port"] = "{tcp}"
+cfg["udp_port"] = "{udp}"
+cfg["enable_ipv6"] = {ipv6}
+if {migrate}:
+    sni = {sni}
+    cfg["no_tls"] = False
+    cfg.pop("cert_file", None)
+    cfg.pop("key_file", None)
+    cfg["reality_target"] = sni + ":443"
+    cfg["reality_backend"] = sni + ":443"
+    cfg["reality_backend_sni"] = sni
+    cfg["reality_server_names"] = [sni]
+    if len(str(cfg.get("reality_auth_key") or "").strip()) < 32:
+        cfg["reality_auth_key"] = secrets.token_hex(32)
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.replace(tmp, path)
+auth = str(cfg.get("reality_auth_key") or "").strip()
+reality_on = (not cfg.get("no_tls", False)) and len(auth) >= 32
+print("AUTH=" + auth)
+print("SNI=" + str(cfg.get("reality_backend_sni") or ""))
+print("REALITY=" + ("1" if reality_on else "0"))
+PY"#
+    )
+}
+
+/// Puts the previous binary and config back after a failed update and restarts the unit.
+async fn restore_previous(s: &Session) {
+    s.log("update failed, restoring previous binary and config");
+    let _ = s
+        .run(
+            &format!(
+                "test -f {SERVER_BIN}.bak && cp -f {SERVER_BIN}.bak {SERVER_BIN}; test -f {SERVER_CONFIG}.bak && cp -f {SERVER_CONFIG}.bak {SERVER_CONFIG}; docker restart {VPN_CONTAINER} >/dev/null 2>&1; true"
+            ),
+            false,
+        )
+        .await;
 }
 
 pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, String> {
     let host = req.host.trim().to_string();
-    let vpn_port = "443".to_string();
     let sni = mask_sni(&req);
     let reality_auth = new_reality_auth();
 
@@ -514,6 +639,11 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
     let enable_ipv6 = probe_ipv6_connectivity(&s).await;
     s.progress(36);
 
+    // 443 is preferred; a foreign service on it (e.g. nginx) moves us to 8443 instead of failing.
+    let vpn_pids = s.vpn_pids().await;
+    let tcp_port = pick_port(&s, "tcp", &["443", ALT_PORT], &vpn_pids).await?;
+    let udp_port = pick_port(&s, "udp", &["443", ALT_PORT], &vpn_pids).await?;
+
     let secret = StaticSecret::random_from_rng(rand::rngs::OsRng);
     let public = PublicKey::from(&secret);
     let priv_hex = hex::encode(secret.to_bytes());
@@ -528,18 +658,17 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
     let bin_hash = hex::encode(Sha256::digest(&bin_bytes));
     let ver_str = format!("0.1.0\n{bin_hash}\n");
     let _ = s.upload_bytes(ver_str.as_bytes(), "/opt/obsidian/version.txt").await;
-    s.log(&format!("REALITY mask {sni}:443, listen :443"));
+    s.log(&format!("REALITY mask {sni}:443, listen TCP {tcp_port}, UDP {udp_port}"));
 
     let iface = s
         .run("ip route show default | awk '/default/{print $5}' | head -1", false)
         .await?;
     let iface = if iface.is_empty() { "eth0".into() } else { iface };
-    assert_listen_free(&s, "443").await?;
 
     let config = serde_json::json!({
         "host": "0.0.0.0",
         "protocol_version": 2,
-        "port": vpn_port,
+        "port": tcp_port.clone(),
         "no_tls": false,
         "reality_target": format!("{sni}:443"),
         "reality_backend": format!("{sni}:443"),
@@ -556,7 +685,7 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
         "dns_listen": "10.8.0.1:53",
         "disable_dns_proxy": false,
         "enable_ipv6": enable_ipv6,
-        "udp_port": vpn_port,
+        "udp_port": udp_port.clone(),
         "enable_udp_data": true,
         "udp_socket_buffer_mb": 16,
         "allowed_clients": [],
@@ -633,13 +762,13 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
     s.progress(90);
 
     s.log("healthcheck ok");
-    setup_nat(&s, &iface, &vpn_port, enable_ipv6).await?;
+    setup_nat(&s, &iface, &tcp_port, &udp_port, enable_ipv6).await?;
     s.progress(100);
 
     Ok(DeployResult {
         server_host: host,
-        server_port: vpn_port.clone(),
-        udp_port: vpn_port,
+        server_port: tcp_port,
+        udp_port,
         server_public_key: pub_hex,
         keyserver_url: format!("http://{}:{KEYSERVER_PORT}", req.host.trim()),
         admin_token,
@@ -649,7 +778,115 @@ pub async fn deploy(app: AppHandle, req: DeployReq) -> Result<DeployResult, Stri
     })
 }
 
-async fn setup_nat(s: &Session, iface: &str, vpn_port: &str, enable_ipv6: bool) -> Result<(), String> {
+#[derive(Debug, Clone, PartialEq)]
+enum PortOwner {
+    Free,
+    Ours,
+    Foreign(String),
+}
+
+/// Reads `ss -lntp` / `ss -lnup` output and decides who holds one exact local port.
+/// Sockets owned by obsidian-server or by processes of the VPN container count as ours.
+fn parse_port_owner(out: &str, port: &str, vpn_pids: &[String]) -> PortOwner {
+    let mut listed = false;
+    let mut unknown = false;
+    let mut foreign: Vec<String> = Vec::new();
+    for line in out.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 4 {
+            continue;
+        }
+        // The local address is the 4th column; the port is the part after the last ':'.
+        if cols[3].rsplit(':').next() != Some(port) {
+            continue;
+        }
+        listed = true;
+        let users = line.find("users:((").map(|i| &line[i..]).unwrap_or("");
+        let mut has_entry = false;
+        for entry in users.split("(\"").skip(1) {
+            has_entry = true;
+            let name = entry.split('"').next().unwrap_or("");
+            let pid = entry
+                .split("pid=")
+                .nth(1)
+                .unwrap_or("")
+                .split(|c: char| !c.is_ascii_digit())
+                .next()
+                .unwrap_or("");
+            let ours = name == "obsidian-server" || vpn_pids.iter().any(|p| p == pid);
+            if !ours && !foreign.iter().any(|f| f == name) {
+                foreign.push(name.to_string());
+            }
+        }
+        if !has_entry {
+            unknown = true;
+        }
+    }
+    if !listed {
+        return PortOwner::Free;
+    }
+    if !foreign.is_empty() {
+        return PortOwner::Foreign(foreign.join(", "));
+    }
+    if unknown {
+        return PortOwner::Foreign("неизвестный процесс".into());
+    }
+    PortOwner::Ours
+}
+
+async fn port_owner(
+    s: &Session,
+    proto: &str,
+    port: &str,
+    vpn_pids: &[String],
+) -> Result<PortOwner, String> {
+    let flags = if proto == "udp" { "-lnup" } else { "-lntp" };
+    let (out, _, _) = s.exec_raw(&format!("ss {flags} 2>/dev/null")).await?;
+    Ok(parse_port_owner(&out, port, vpn_pids))
+}
+
+/// Returns the first candidate port that is free or held by our own unit.
+/// Logs the skipped port and the process that holds it. Fails only if every candidate is taken.
+async fn pick_port(
+    s: &Session,
+    proto: &str,
+    candidates: &[&str],
+    vpn_pids: &[String],
+) -> Result<String, String> {
+    let label = proto.to_uppercase();
+    let mut skipped: Option<(String, String)> = None;
+    let mut busy: Vec<String> = Vec::new();
+    for &port in candidates {
+        match port_owner(s, proto, port, vpn_pids).await? {
+            PortOwner::Free | PortOwner::Ours => {
+                if let Some((first, who)) = &skipped {
+                    s.log(&format!("{label} {first} занят ({who}), оставляю порт {port}"));
+                }
+                return Ok(port.to_string());
+            }
+            PortOwner::Foreign(who) => {
+                if skipped.is_none() {
+                    skipped = Some((port.to_string(), who));
+                }
+                if !busy.iter().any(|b| b == port) {
+                    busy.push(port.to_string());
+                }
+            }
+        }
+    }
+    Err(format!(
+        "Не удалось выбрать порт {label}: заняты {}. Освободите один из них на сервере и повторите.",
+        busy.join(", ")
+    ))
+}
+
+async fn setup_nat(
+    s: &Session,
+    iface: &str,
+    tcp_port: &str,
+    udp_port: &str,
+    enable_ipv6: bool,
+) -> Result<(), String> {
     s.run(
         &format!("iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o {iface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o {iface} -j MASQUERADE"),
         true,
@@ -703,8 +940,10 @@ async fn setup_nat(s: &Session, iface: &str, vpn_port: &str, enable_ipv6: bool) 
             false,
         )
         .await?;
+    }
+    for (proto, port) in [("tcp", tcp_port), ("udp", udp_port)] {
         s.run(
-            &format!("iptables -C INPUT -p {proto} --dport {vpn_port} -j ACCEPT 2>/dev/null || iptables -A INPUT -p {proto} --dport {vpn_port} -j ACCEPT"),
+            &format!("iptables -C INPUT -p {proto} --dport {port} -j ACCEPT 2>/dev/null || iptables -A INPUT -p {proto} --dport {port} -j ACCEPT"),
             false,
         )
         .await?;
@@ -719,41 +958,20 @@ async fn setup_nat(s: &Session, iface: &str, vpn_port: &str, enable_ipv6: bool) 
         false,
     )
     .await?;
-    s.run(&format!("ufw allow {vpn_port}/tcp 2>/dev/null || true"), false)
+    s.run(&format!("ufw allow {tcp_port}/tcp 2>/dev/null || true"), false)
         .await?;
-    s.run(&format!("ufw allow {vpn_port}/udp 2>/dev/null || true"), false)
+    s.run(&format!("ufw allow {udp_port}/udp 2>/dev/null || true"), false)
         .await?;
     Ok(())
 }
 
-async fn assert_listen_free(s: &Session, port: &str) -> Result<(), String> {
-    let out = s
-        .run(
-            &format!("ss -lntup 2>/dev/null | grep -E ':{port}\\b' | head -8 || true"),
-            false,
-        )
-        .await?;
-    let busy: Vec<&str> = out
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    if busy.is_empty() {
-        return Ok(());
-    }
-    if busy.iter().all(|l| l.contains("obsidian-server")) {
-        s.log(&format!("port {port} already held by the vpn unit"));
-        return Ok(());
-    }
-    Err(format!(
-        "Port {port} is already in use. Stop nginx/caddy/panel HTTPS on this host, then retry.\n{}",
-        busy.join("\n")
-    ))
-}
-
-async fn close_legacy_ports(s: &Session) -> Result<(), String> {
+/// Removes the leftover 8443/8444 firewall rules, but never the ports that stay in use.
+async fn close_legacy_ports(s: &Session, keep: &[(&str, &str)]) -> Result<(), String> {
     for port in ["8443", "8444"] {
         for proto in ["tcp", "udp"] {
+            if keep.contains(&(proto, port)) {
+                continue;
+            }
             s.run(
                 &format!("ufw delete allow {port}/{proto} >/dev/null 2>&1 || true"),
                 false,
