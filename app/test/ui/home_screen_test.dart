@@ -168,6 +168,29 @@ void main() {
     expect(backend.connects, isNotEmpty);
   });
 
+  testWidgets('Space toggles once after switching to Servers and back', (
+    tester,
+  ) async {
+    final backend = FakeVpnBackend();
+    final state = await buildState(backend, key: keyLegacyHost());
+    await pumpApp(tester, state);
+    await tester.pump();
+
+    final nav = find.byKey(const ValueKey('shell-nav'));
+    await tester.tap(find.descendant(of: nav, matching: find.text('Серверы')));
+    await tester.pump();
+    await tester.tap(find.descendant(of: nav, matching: find.text('Главная')));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(backend.connects, hasLength(1));
+  });
+
   testWidgets('picker lists profiles and selects one', (tester) async {
     final backend = FakeVpnBackend();
     final state = await buildState(

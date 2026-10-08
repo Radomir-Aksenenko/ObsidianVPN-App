@@ -33,7 +33,7 @@ class _ToggleIntent extends Intent {
 }
 
 /// Fires only when the Home page root itself has focus, so Enter on a focused
-/// row or button still activates that row or button.
+/// row or button still activates that row or button. Never inside a text field.
 class _ToggleAction extends Action<_ToggleIntent> {
   _ToggleAction(this.node, this.onToggle);
 
@@ -41,7 +41,8 @@ class _ToggleAction extends Action<_ToggleIntent> {
   final VoidCallback onToggle;
 
   @override
-  bool isEnabled(_ToggleIntent intent) => node.hasPrimaryFocus;
+  bool isEnabled(_ToggleIntent intent) =>
+      node.hasPrimaryFocus && !editingText();
 
   @override
   Object? invoke(_ToggleIntent intent) {
@@ -65,11 +66,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FocusNode _focus = FocusNode(debugLabel: 'home');
+  bool _wasVisible = false;
 
   @override
   void dispose() {
     _focus.dispose();
     super.dispose();
+  }
+
+  /// Takes the keyboard focus each time the Home tab becomes visible again. The shell
+  /// keeps every tab alive, and another tab holds the focus while Home is hidden.
+  void _focusWhenShown(bool visible) {
+    if (visible && !_wasVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !editingText()) _focus.requestFocus();
+      });
+    }
+    _wasVisible = visible;
   }
 
   void _goTo(ShellTab tab) => ShellNav.maybeOf(context)?.goTo(tab);
@@ -107,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final status = state.vpnStatus;
     final visible =
         (ShellNav.maybeOf(context)?.tab ?? ShellTab.home) == ShellTab.home;
+    _focusWhenShown(visible);
 
     final page = LayoutBuilder(
       builder: (context, box) {
@@ -158,9 +172,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
-        SingleActivator(LogicalKeyboardKey.space): _ToggleIntent(),
-        SingleActivator(LogicalKeyboardKey.enter): _ToggleIntent(),
-        SingleActivator(LogicalKeyboardKey.numpadEnter): _ToggleIntent(),
+        // No key repeat: holding Space or Enter must not toggle the connection again and again.
+        SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
+            _ToggleIntent(),
+        SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false):
+            _ToggleIntent(),
+        SingleActivator(LogicalKeyboardKey.numpadEnter, includeRepeats: false):
+            _ToggleIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{

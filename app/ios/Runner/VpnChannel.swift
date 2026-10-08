@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import NetworkExtension
+import Security
 
 /// Мост Flutter <-> NetworkExtension.
 /// MethodChannel "obsidian/vpn", EventChannel "obsidian/vpn/events" (протокол в app-docs/ARCHITECTURE.md).
@@ -8,6 +9,8 @@ import NetworkExtension
 final class VpnChannel: NSObject, FlutterStreamHandler {
     private static let appGroupID = "group.com.obsidian.vpn"
     private static let errorKey = "lastTunnelError"
+    /// Keychain service of the tunnel config items. Shared with the extension through keychain-access-groups.
+    private static let keychainService = "com.obsidian.vpn.tunnel"
 
     private let methodChannel: FlutterMethodChannel
     private let eventChannel: FlutterEventChannel
@@ -159,9 +162,15 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
                 return
             }
 
+            // The client private key lives only in the Keychain; the profile keeps a reference to it.
+            guard let passwordReference = self.storeConfig(configJson, profileId: profileId) else {
+                result(FlutterError(code: "keychain_failed", message: "Не удалось сохранить конфигурацию в Keychain.", details: nil))
+                return
+            }
             mgr.protocolConfiguration = self.makeProtocol(
                 serverAddress: serverHost.isEmpty ? "obsidian" : serverHost,
-                providerConfiguration: ["configJson": configJson, "profileId": profileId, "name": name],
+                providerConfiguration: ["profileId": profileId, "name": name],
+                passwordReference: passwordReference,
                 killSwitch: killSwitch
             )
             mgr.localizedDescription = "Obsidian"
@@ -241,13 +250,45 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         }
     }
 
+    // MARK: - Keychain
+
+    /// Writes configJson to the generic-password item for profileId (update, or add when missing).
+    /// Returns the item's persistent reference, which the extension resolves through the shared access group.
+    /// The item has no explicit access group, so it goes to the first keychain-access-groups entry.
+    private func storeConfig(_ configJson: String, profileId: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: VpnChannel.keychainService,
+            kSecAttrAccount as String: profileId,
+        ]
+        let values: [String: Any] = [
+            kSecValueData as String: Data(configJson.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        var status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item.merge(values) { _, new in new }
+            status = SecItemAdd(item as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else { return nil }
+
+        var lookup = query
+        lookup[kSecReturnPersistentRef as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(lookup as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
     // MARK: - Manager
 
-    private func makeProtocol(serverAddress: String, providerConfiguration: [String: Any], killSwitch: Bool) -> NETunnelProviderProtocol {
+    private func makeProtocol(serverAddress: String, providerConfiguration: [String: Any], passwordReference: Data? = nil, killSwitch: Bool) -> NETunnelProviderProtocol {
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = providerBundleId
         proto.serverAddress = serverAddress
         proto.providerConfiguration = providerConfiguration
+        proto.passwordReference = passwordReference
         proto.disconnectOnSleep = false
         // Kill switch: весь трафик только через туннель, пока он поднят.
         proto.includeAllNetworks = killSwitch

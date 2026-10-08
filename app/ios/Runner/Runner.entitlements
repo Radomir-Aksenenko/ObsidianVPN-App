@@ -10,5 +10,9 @@
     <array>
         <string>group.com.obsidian.vpn</string>
     </array>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.obsidian.vpn</string>
+    </array>
 </dict>
 </plist>

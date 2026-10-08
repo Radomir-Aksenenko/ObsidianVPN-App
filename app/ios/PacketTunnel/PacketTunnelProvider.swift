@@ -1,6 +1,7 @@
 import Foundation
 import NetworkExtension
 import Darwin
+import Security
 
 #if canImport(Obsidian)
 import Obsidian
@@ -9,7 +10,7 @@ import Obsidian
 private let appGroupID = "group.com.obsidian.vpn"
 
 /// Туннель Obsidian. Конфигурация приходит одним JSON (ClientConfig плюс split-поля):
-/// providerConfiguration["configJson"] или options["configJson"].
+/// Keychain по passwordReference, затем options["configJson"], затем providerConfiguration["configJson"] (старые профили).
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let engine = ObsidianPacketEngine()
     private let receiveQueue = DispatchQueue(label: "com.obsidian.vpn.packet-receive", qos: .userInteractive)
@@ -40,6 +41,35 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         set { stateLock.lock(); running = newValue; stateLock.unlock() }
     }
 
+    /// Config for this start. The Keychain item is the normal source. options come from the app at start,
+    /// and providerConfiguration only serves profiles saved by builds that stored the JSON in plain text.
+    private func loadConfigJson(options: [String: NSObject]?) -> String? {
+        if let json = configFromKeychain(), !json.isEmpty {
+            return json
+        }
+        if let json = options?["configJson"] as? String, !json.isEmpty {
+            return json
+        }
+        return (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["configJson"] as? String
+    }
+
+    /// Reads the Keychain item that passwordReference points to. The app writes it into the shared access group.
+    private func configFromKeychain() -> String? {
+        guard let reference = protocolConfiguration.passwordReference else { return nil }
+        let query: [String: Any] = [
+            kSecValuePersistentRef as String: reference,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            tunnelLog("Не удалось прочитать конфигурацию из Keychain: статус \(status)")
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
     private func setStage(_ value: Int) {
         stateLock.lock()
         stage = value
@@ -62,10 +92,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
         tunnelLog("Запрос на запуск туннеля")
 
-        var configJson = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["configJson"] as? String
-        if configJson == nil || configJson?.isEmpty == true {
-            configJson = options?["configJson"] as? String
-        }
+        let configJson = loadConfigJson(options: options)
 
         guard let json = configJson, !json.isEmpty,
               let data = json.data(using: .utf8),

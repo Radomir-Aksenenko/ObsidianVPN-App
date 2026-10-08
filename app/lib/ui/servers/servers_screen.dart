@@ -36,7 +36,7 @@ class _ServersScreenState extends State<ServersScreen> {
   void _focusWhenShown(bool visible) {
     if (visible && !_wasVisible) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_editingText()) _focus.requestFocus();
+        if (mounted && !editingText()) _focus.requestFocus();
       });
     }
     _wasVisible = visible;
@@ -146,7 +146,7 @@ class _ServersScreenState extends State<ServersScreen> {
     return <ShortcutActivator, VoidCallback>{
       activator: () {
         // Inside a text field Ctrl+V pastes into that field.
-        if (_editingText()) return;
+        if (editingText()) return;
         _pasteFromClipboard(context);
       },
     };
@@ -171,14 +171,6 @@ class _ServersScreenState extends State<ServersScreen> {
     if (value == null || !context.mounted) return;
     await showAddKeySheet(context, initialText: value);
   }
-}
-
-/// True when the focused widget is a text field.
-bool _editingText() {
-  final focus = FocusManager.instance.primaryFocus?.context;
-  if (focus == null) return false;
-  return focus.widget is EditableText ||
-      focus.findAncestorWidgetOfExactType<EditableText>() != null;
 }
 
 class _ServerRow extends StatefulWidget {
