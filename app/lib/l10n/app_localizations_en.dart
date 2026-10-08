@@ -170,6 +170,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String accessDaysShort(int days) {
+    return '$days d';
+  }
+
+  @override
   String get accessExpired => 'Expired';
 
   @override
@@ -529,6 +534,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get vpsResetDone => 'Server reset, owner key updated';
+
+  @override
+  String vpsResetDoneRevoked(int count) {
+    return 'Server reset, owner key updated. Issued keys removed: $count.';
+  }
+
+  @override
+  String get vpsUpdateDonePortChanged =>
+      'Core updated. The port changed: keys issued before must be issued again.';
 
   @override
   String get vpsSheetCheck => 'Checking version';

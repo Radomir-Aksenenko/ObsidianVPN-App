@@ -6,10 +6,10 @@ import '../../core/codec/obsidian_key.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../vps/deployer.dart';
+import '../../vps/owner_key.dart';
 import '../../vps/vps_models.dart';
 import '../widgets/widgets.dart';
 import 'deploy_progress.dart';
-import 'owner_key.dart';
 import 'ssh_form.dart';
 import 'vps_common.dart';
 
@@ -54,7 +54,8 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
 
   bool get _canManage {
     final creds = _creds;
-    return creds != null && (creds.usesKey || (creds.password ?? '').isNotEmpty);
+    return creds != null &&
+        (creds.usesKey || (creds.password ?? '').isNotEmpty);
   }
 
   Future<void> _load() async {
@@ -143,7 +144,11 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
       start: (trusted) => _deployer.setIpv6(_pinned(creds, trusted), enabled),
     );
     if (outcome == null || !mounted) return;
-    await _saveOwnerSafely(state, hostKey: outcome.hostKey, ipv6: outcome.value);
+    await _saveOwnerSafely(
+      state,
+      hostKey: outcome.hostKey,
+      ipv6: outcome.value,
+    );
     if (!mounted) return;
     setState(() => _ipv6 = outcome.value);
     showObsToast(context, l.vpsIpv6Done, kind: ObsToastKind.success);
@@ -186,14 +191,22 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
       start: (trusted) => _deployer.update(_pinned(creds, trusted)),
     );
     if (outcome == null || !mounted) return;
-    await state.updateVpsProfile(
-      widget.profileId,
-      hostKey: outcome.hostKey,
-      serverVersion: _deployer.bundledVersion,
-      needsUpdate: false,
-    );
-    if (!mounted) return;
-    showObsToast(context, l.vpsUpdateDone, kind: ObsToastKind.success);
+    try {
+      final portChanged = await state.applyVpsUpdate(
+        widget.profileId,
+        outcome.value,
+        serverVersion: _deployer.bundledVersion,
+        hostKey: outcome.hostKey,
+      );
+      if (!mounted) return;
+      showObsToast(
+        context,
+        portChanged ? l.vpsUpdateDonePortChanged : l.vpsUpdateDone,
+        kind: ObsToastKind.success,
+      );
+    } on AppStateException catch (e) {
+      if (mounted) showObsToast(context, e.messageRu, kind: ObsToastKind.error);
+    }
   }
 
   Future<void> _editSsh() async {
@@ -250,18 +263,21 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
     );
     if (outcome == null || !mounted) return;
     final result = outcome.value;
-    await state.updateVpsProfile(
+    final removed = await state.applyVpsReset(
       widget.profileId,
+      result,
       hostKey: outcome.hostKey,
-      ownerKey: result.ownerKey,
-      ownerConfig: result.ownerConfig,
     );
     if (!mounted) return;
     setState(() {
       _ipv6 = result.ownerConfig.enableIpv6;
       _sni.text = result.realitySni.isEmpty ? kDefaultSni : result.realitySni;
     });
-    showObsToast(context, l.vpsResetDone, kind: ObsToastKind.success);
+    showObsToast(
+      context,
+      removed > 0 ? l.vpsResetDoneRevoked(removed) : l.vpsResetDone,
+      kind: ObsToastKind.success,
+    );
   }
 
   /// Like [_saveOwner], but a missing owner key shows a toast instead of throwing.
@@ -286,7 +302,10 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
     final profile = state.profileById(widget.profileId);
     final vps = profile?.vps;
     if (profile == null || vps == null) {
-      return VpsPage(title: l.vpsManageTitle, children: [Text(l.vpsErrorGeneric)]);
+      return VpsPage(
+        title: l.vpsManageTitle,
+        children: [Text(l.vpsErrorGeneric)],
+      );
     }
     final canManage = _canManage;
     final showBanner = _creds != null && !canManage;
@@ -325,7 +344,10 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(l.vpsNoCreds, style: vpsBodyDim(context).copyWith(color: c.warn)),
+                Text(
+                  l.vpsNoCreds,
+                  style: vpsBodyDim(context).copyWith(color: c.warn),
+                ),
                 const SizedBox(height: Space.s12),
                 ObsButton(
                   label: l.vpsAddCreds,
@@ -347,13 +369,16 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
           onPressed: canManage ? _applySni : null,
         ),
         const SizedBox(height: Space.s8),
-        Text(l.vpsReissueNote, style: vpsBodyDim(context).copyWith(fontSize: 12)),
+        Text(
+          l.vpsReissueNote,
+          style: vpsBodyDim(context).copyWith(fontSize: 12),
+        ),
         const SizedBox(height: Space.s24),
         ObsGroup(
           children: <Widget>[
             ObsRow(
               title: 'IPv6',
-              trailing: Switch.adaptive(
+              trailing: ObsSwitch(
                 value: _ipv6,
                 onChanged: canManage ? _setIpv6 : null,
               ),
@@ -361,7 +386,10 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
           ],
         ),
         const SizedBox(height: Space.s8),
-        Text(l.vpsReissueNote, style: vpsBodyDim(context).copyWith(fontSize: 12)),
+        Text(
+          l.vpsReissueNote,
+          style: vpsBodyDim(context).copyWith(fontSize: 12),
+        ),
         const SizedBox(height: Space.s24),
         SectionLabel(l.vpsCoreSection),
         const SizedBox(height: Space.s8),
@@ -375,10 +403,7 @@ class _ServerManageScreenState extends State<ServerManageScreen> {
         ),
         const SizedBox(height: Space.s12),
         if (profile.needsUpdate) ...[
-          ObsButton(
-            label: l.vpsUpdate,
-            onPressed: canManage ? _update : null,
-          ),
+          ObsButton(label: l.vpsUpdate, onPressed: canManage ? _update : null),
           const SizedBox(height: Space.s8),
         ],
         ObsButton(

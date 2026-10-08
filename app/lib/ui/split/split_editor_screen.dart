@@ -133,7 +133,9 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
   }
 
   Future<void> _leave() async {
-    final choice = await showAdaptiveSheet<_LeaveChoice>(context, (sheetContext) {
+    final choice = await showAdaptiveSheet<_LeaveChoice>(context, (
+      sheetContext,
+    ) {
       final l10n = AppLocalizations.of(sheetContext);
       final c = sheetContext.obs.colors;
       return ObsSheet(
@@ -144,14 +146,15 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
           children: [
             Text(
               l10n.splitUnsavedBody,
-              style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
-                    color: c.textDim,
-                  ),
+              style: Theme.of(
+                sheetContext,
+              ).textTheme.bodyMedium?.copyWith(color: c.textDim),
             ),
             const SizedBox(height: Space.s16),
             ObsButton(
               label: l10n.splitSave,
-              onPressed: () => Navigator.of(sheetContext).pop(_LeaveChoice.save),
+              onPressed: () =>
+                  Navigator.of(sheetContext).pop(_LeaveChoice.save),
             ),
             const SizedBox(height: Space.s8),
             ObsButton(
@@ -164,7 +167,8 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
             ObsButton(
               label: l10n.splitKeepEditing,
               kind: ObsButtonKind.secondary,
-              onPressed: () => Navigator.of(sheetContext).pop(_LeaveChoice.stay),
+              onPressed: () =>
+                  Navigator.of(sheetContext).pop(_LeaveChoice.stay),
             ),
           ],
         ),
@@ -211,11 +215,19 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
                 child: ListView(
-                  padding: EdgeInsets.fromLTRB(gutter, Space.s8, gutter, Space.s24),
+                  padding: EdgeInsets.fromLTRB(
+                    gutter,
+                    Space.s8,
+                    gutter,
+                    Space.s24,
+                  ),
                   children: [
                     ObsSegmented<SplitMode>(
                       options: [
-                        ObsSegment(value: SplitMode.off, label: l10n.splitModeOff),
+                        ObsSegment(
+                          value: SplitMode.off,
+                          label: l10n.splitModeOff,
+                        ),
                         ObsSegment(
                           value: SplitMode.include,
                           label: l10n.splitModeInclude,
@@ -245,8 +257,10 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
                         for (final preset in SplitPreset.values)
                           ObsRow(
                             title: preset.titleRu,
-                            subtitle: l10n.splitPresetCount(preset.entries.length),
-                            trailing: Switch.adaptive(
+                            subtitle: l10n.splitPresetCount(
+                              preset.entries.length,
+                            ),
+                            trailing: ObsSwitch(
                               value: _presets.contains(preset),
                               onChanged: (_) => _togglePreset(preset),
                             ),
@@ -267,10 +281,7 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
                       onChanged: _onTextChanged,
                     ),
                     const SizedBox(height: Space.s8),
-                    Text(
-                      l10n.splitAccepted(_rules.length),
-                      style: caption,
-                    ),
+                    Text(l10n.splitAccepted(_rules.length), style: caption),
                     if (_issues.isNotEmpty) ...[
                       const SizedBox(height: Space.s16),
                       ObsGroup(
@@ -305,7 +316,12 @@ class _SplitEditorScreenState extends State<SplitEditorScreen> {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(gutter, Space.s12, gutter, Space.s12),
+                padding: EdgeInsets.fromLTRB(
+                  gutter,
+                  Space.s12,
+                  gutter,
+                  Space.s12,
+                ),
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: ConstrainedBox(
@@ -395,7 +411,9 @@ class _WarningLine extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: c.warn),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: c.warn),
           ),
         ),
       ],

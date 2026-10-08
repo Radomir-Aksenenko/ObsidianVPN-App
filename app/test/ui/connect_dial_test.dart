@@ -12,7 +12,93 @@ Widget _dial(VpnStatus status, {VoidCallback? onPressed}) => ConnectDial(
 );
 
 void main() {
+  group('litSegments', () {
+    test('connected lights all 4 segments whatever the stage', () {
+      for (final stage in [0, 1, 2, 3, 4]) {
+        expect(
+          litSegments(VpnStatus(phase: VpnPhase.connected, stage: stage)),
+          4,
+          reason: 'stage $stage',
+        );
+      }
+    });
+
+    test('disconnected and disconnecting light no segments', () {
+      for (final stage in [0, 2, 4]) {
+        expect(
+          litSegments(VpnStatus(phase: VpnPhase.disconnected, stage: stage)),
+          0,
+        );
+        expect(
+          litSegments(VpnStatus(phase: VpnPhase.disconnecting, stage: stage)),
+          0,
+        );
+      }
+    });
+
+    test('connecting and reconnecting follow the stage', () {
+      for (final phase in [VpnPhase.connecting, VpnPhase.reconnecting]) {
+        for (var stage = 0; stage <= 4; stage++) {
+          expect(litSegments(VpnStatus(phase: phase, stage: stage)), stage);
+        }
+      }
+    });
+
+    test('error lights the segments before the failed one', () {
+      expect(
+        litSegments(
+          const VpnStatus(phase: VpnPhase.error, stage: 2, error: 'x'),
+        ),
+        2,
+      );
+      expect(
+        litSegments(
+          const VpnStatus(phase: VpnPhase.error, stage: 4, error: 'x'),
+        ),
+        3,
+      );
+    });
+  });
+
   group('ConnectDial', () {
+    testWidgets('connected with stage 2 paints 4 lit segments', (tester) async {
+      await pumpThemed(
+        tester,
+        _dial(const VpnStatus(phase: VpnPhase.connected, stage: 2)),
+      );
+      await tester.pumpAndSettle();
+      final painter =
+          tester
+                  .widget<CustomPaint>(
+                    find.byWidgetPredicate(
+                      (w) => w is CustomPaint && w.painter is DialPainter,
+                    ),
+                  )
+                  .painter!
+              as DialPainter;
+      expect(painter.fill.value, 4);
+    });
+
+    testWidgets('disconnected with stage 4 paints no lit segments', (
+      tester,
+    ) async {
+      await pumpThemed(
+        tester,
+        _dial(const VpnStatus(phase: VpnPhase.disconnected, stage: 4)),
+      );
+      await tester.pumpAndSettle();
+      final painter =
+          tester
+                  .widget<CustomPaint>(
+                    find.byWidgetPredicate(
+                      (w) => w is CustomPaint && w.painter is DialPainter,
+                    ),
+                  )
+                  .painter!
+              as DialPainter;
+      expect(painter.fill.value, 0);
+    });
+
     for (final status in <VpnStatus>[
       const VpnStatus(),
       const VpnStatus(phase: VpnPhase.connecting, stage: 2),

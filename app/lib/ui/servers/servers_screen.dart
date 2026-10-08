@@ -21,8 +21,14 @@ class ServersScreen extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final state = AppState.of(context);
     final profiles = state.profiles;
-    final favorites = [for (final p in profiles) if (p.isFavorite) p];
-    final others = [for (final p in profiles) if (!p.isFavorite) p];
+    final favorites = [
+      for (final p in profiles)
+        if (p.isFavorite) p,
+    ];
+    final others = [
+      for (final p in profiles)
+        if (!p.isFavorite) p,
+    ];
     final selectedId = state.selectedProfile?.id;
     final pings = state.pings;
     final canScanQr = isMobile || isMacOS;
@@ -39,74 +45,62 @@ class ServersScreen extends StatelessWidget {
         ),
     ];
 
-    final Widget body;
+    final List<Widget> sections;
     if (profiles.isEmpty) {
-      body = Align(
-        alignment: AlignmentDirectional.topStart,
-        child: ObsEmptyState(
+      sections = [
+        ObsEmptyState(
           text: l10n.serversEmpty,
           actionLabel: l10n.serversAddKey,
           onAction: () => showAddKeySheet(context),
         ),
-      );
+      ];
     } else {
-      body = ListView(
-        padding: const EdgeInsets.only(bottom: Space.s16),
-        children: [
-          if (favorites.isNotEmpty)
-            ObsGroup(
-              label: l10n.serversSectionFavorites,
-              children: rows(favorites),
-            ),
-          if (others.isNotEmpty)
-            ObsGroup(
-              label: favorites.isEmpty ? null : l10n.serversSectionAll,
-              children: rows(others),
-            ),
-        ],
-      );
+      sections = [
+        if (favorites.isNotEmpty)
+          ObsGroup(
+            label: l10n.serversSectionFavorites,
+            children: rows(favorites),
+          ),
+        if (others.isNotEmpty)
+          ObsGroup(
+            label: favorites.isEmpty ? null : l10n.serversSectionAll,
+            children: rows(others),
+          ),
+      ];
     }
+
+    final footer = <Widget>[
+      if (profiles.isNotEmpty)
+        ObsButton(
+          label: l10n.serversAddKey,
+          icon: Icons.add_rounded,
+          onPressed: () => showAddKeySheet(context),
+        ),
+      if (canScanQr) ...[
+        if (profiles.isNotEmpty) const SizedBox(height: Space.s8),
+        ObsButton(
+          label: l10n.serversScanQr,
+          kind: ObsButtonKind.secondary,
+          icon: Icons.qr_code_scanner_rounded,
+          onPressed: () => _scanQr(context),
+        ),
+      ],
+    ];
 
     return CallbackShortcuts(
       bindings: _pasteBindings(context),
       child: Focus(
         autofocus: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: Space.s24, bottom: Space.s16),
-              child: Text(
-                l10n.serversTitle,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ),
-            Expanded(child: body),
-            Padding(
-              padding: const EdgeInsets.only(top: Space.s12, bottom: Space.s16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (profiles.isNotEmpty)
-                    ObsButton(
-                      label: l10n.serversAddKey,
-                      icon: Icons.add_rounded,
-                      onPressed: () => showAddKeySheet(context),
-                    ),
-                  if (canScanQr) ...[
-                    if (profiles.isNotEmpty) const SizedBox(height: Space.s8),
-                    ObsButton(
-                      label: l10n.serversScanQr,
-                      kind: ObsButtonKind.secondary,
-                      icon: Icons.qr_code_scanner_rounded,
-                      onPressed: () => _scanQr(context),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+        child: TabPage(
+          title: l10n.serversTitle,
+          footer: footer.isEmpty
+              ? null
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: footer,
+                ),
+          children: sections,
         ),
       ),
     );
@@ -199,10 +193,17 @@ class _ServerRowState extends State<_ServerRow> {
               const SizedBox(width: Space.s4),
               IconButton(
                 tooltip: l10n.serversMore,
-                constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+                constraints: const BoxConstraints.tightFor(
+                  width: 40,
+                  height: 40,
+                ),
                 padding: EdgeInsets.zero,
                 visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.more_horiz_rounded, size: 22, color: c.textDim),
+                icon: Icon(
+                  Icons.more_horiz_rounded,
+                  size: 22,
+                  color: c.textDim,
+                ),
                 onPressed: widget.onMore,
               ),
             ],

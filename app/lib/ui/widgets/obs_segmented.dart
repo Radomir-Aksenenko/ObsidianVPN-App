@@ -59,7 +59,7 @@ class ObsSegmented<T> extends StatelessWidget {
                       curve: Durations.curve,
                       height: 38,
                       alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: Space.s8),
+                      padding: const EdgeInsets.symmetric(horizontal: Space.s4),
                       decoration: BoxDecoration(
                         color: option.value == value
                             ? c.bg
@@ -76,10 +76,14 @@ class ObsSegmented<T> extends StatelessWidget {
                         style: label.copyWith(
                           color: option.value == value ? c.text : c.textDim,
                         ),
-                        child: Text(
-                          option.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        // Labels shrink to fit the segment and never ellipsize.
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            option.label,
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
                         ),
                       ),
                     ),

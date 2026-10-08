@@ -398,6 +398,12 @@ abstract class AppLocalizations {
   /// **'Осталось {days} дн.'**
   String accessDaysLeft(int days);
 
+  /// No description provided for @accessDaysShort.
+  ///
+  /// In ru, this message translates to:
+  /// **'{days} дн.'**
+  String accessDaysShort(int days);
+
   /// No description provided for @accessExpired.
   ///
   /// In ru, this message translates to:
@@ -1069,6 +1075,18 @@ abstract class AppLocalizations {
   /// In ru, this message translates to:
   /// **'Сервер обнулён, владельческий ключ обновлён'**
   String get vpsResetDone;
+
+  /// No description provided for @vpsResetDoneRevoked.
+  ///
+  /// In ru, this message translates to:
+  /// **'Сервер обнулён, владельческий ключ обновлён. Выданных ключей удалено: {count}.'**
+  String vpsResetDoneRevoked(int count);
+
+  /// No description provided for @vpsUpdateDonePortChanged.
+  ///
+  /// In ru, this message translates to:
+  /// **'Ядро обновлено. Порт изменился: ранее выданные ключи нужно выдать заново.'**
+  String get vpsUpdateDonePortChanged;
 
   /// No description provided for @vpsSheetCheck.
   ///

@@ -39,7 +39,9 @@ ThemeData buildTheme(Brightness brightness) {
     shadow: Colors.black,
     scrim: Colors.black,
     inverseSurface: isDark ? ObsidianColors.light.bg : ObsidianColors.dark.bg,
-    onInverseSurface: isDark ? ObsidianColors.light.text : ObsidianColors.dark.text,
+    onInverseSurface: isDark
+        ? ObsidianColors.light.text
+        : ObsidianColors.dark.text,
     inversePrimary: c.ember,
     surfaceTint: Colors.transparent,
   );
@@ -74,7 +76,9 @@ ThemeData buildTheme(Brightness brightness) {
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.sheet)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.sheet),
+      ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
@@ -85,11 +89,15 @@ ThemeData buildTheme(Brightness brightness) {
         fontWeight: FontWeight.w600,
         color: c.text,
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.button)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.button),
+      ),
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? c.onEmber : c.textDim,
+        (s) => s.contains(WidgetState.selected)
+            ? obsSwitchThumbOn(c, brightness)
+            : c.textDim,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected) ? c.ember : c.surfaceHi,
@@ -123,10 +131,16 @@ ThemeData buildTheme(Brightness brightness) {
         ),
         overlayColor: WidgetStatePropertyAll(c.onEmber.withValues(alpha: 0.08)),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.button)),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.button),
+          ),
         ),
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontFamily: 'Manrope', fontSize: 13, fontWeight: FontWeight.w600),
+          TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     ),
@@ -135,14 +149,26 @@ ThemeData buildTheme(Brightness brightness) {
         foregroundColor: WidgetStatePropertyAll(c.text),
         overlayColor: WidgetStatePropertyAll(c.text.withValues(alpha: 0.08)),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.input)),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.input),
+          ),
         ),
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontFamily: 'Manrope', fontSize: 13, fontWeight: FontWeight.w600),
+          TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     ),
   );
+}
+
+/// Thumb of a switch that is ON (ember track). Always a light thumb: the text
+/// token in dark theme, white in light theme. Never the dark onEmber colour.
+Color obsSwitchThumbOn(ObsidianColors c, Brightness brightness) {
+  return brightness == Brightness.dark ? c.text : c.surface;
 }
 
 OutlineInputBorder _inputBorder(BorderSide side) {
@@ -155,10 +181,10 @@ OutlineInputBorder _inputBorder(BorderSide side) {
 /// Manrope type scale from DESIGN.md. Slots not listed keep Material 2021 defaults.
 TextTheme _textTheme(ObsidianColors c) {
   final base = Typography.material2021().englishLike.apply(
-        fontFamily: 'Manrope',
-        bodyColor: c.text,
-        displayColor: c.text,
-      );
+    fontFamily: 'Manrope',
+    bodyColor: c.text,
+    displayColor: c.text,
+  );
 
   TextStyle manrope(
     double size,
@@ -181,11 +207,20 @@ TextTheme _textTheme(ObsidianColors c) {
 
   return base.copyWith(
     // display: mono 34/600 for throughput values and the session timer.
-    displayLarge: obsidianMono(c, size: 34, weight: FontWeight.w600, letterSpacing: -0.5),
+    displayLarge: obsidianMono(
+      c,
+      size: 34,
+      weight: FontWeight.w600,
+      letterSpacing: -0.5,
+    ),
     // title: 22/700 for screen titles.
     headlineSmall: manrope(22, FontWeight.w700, letterSpacing: -0.4),
     // heading: 17/650 for section heads and sheet titles.
-    titleLarge: manrope(17, FontWeight.w600, variations: [FontVariation.weight(650)]),
+    titleLarge: manrope(
+      17,
+      FontWeight.w600,
+      variations: [FontVariation.weight(650)],
+    ),
     // body: 15/500, line height 1.4.
     bodyLarge: manrope(15, FontWeight.w500, height: 1.4),
     // label: 13/600 for buttons and small row titles.
@@ -231,9 +266,9 @@ class ObsidianStyles {
 
   /// Mono 34/600 (throughput values, session timer).
   TextStyle get display => obsidianMono(
-        colors,
-        size: 34,
-        weight: FontWeight.w600,
-        letterSpacing: -0.5,
-      );
+    colors,
+    size: 34,
+    weight: FontWeight.w600,
+    letterSpacing: -0.5,
+  );
 }

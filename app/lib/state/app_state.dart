@@ -13,6 +13,7 @@ import 'package:obsidian_vpn/core/net/ping.dart';
 import 'package:obsidian_vpn/core/storage/store.dart';
 import 'package:obsidian_vpn/platform_info.dart' as platform;
 import 'package:obsidian_vpn/vps/key_issuer.dart';
+import 'package:obsidian_vpn/vps/owner_key.dart';
 import 'package:obsidian_vpn/vps/vps_models.dart';
 import 'package:obsidian_vpn/vpn/channel_backend.dart';
 import 'package:obsidian_vpn/vpn/desktop_backend.dart';
@@ -424,7 +425,10 @@ class AppState extends ChangeNotifier {
       _onStatus(VpnStatus(phase: VpnPhase.error, error: e.message));
     } on Object catch (_) {
       _onStatus(
-        const VpnStatus(phase: VpnPhase.error, error: 'Не удалось отключить VPN.'),
+        const VpnStatus(
+          phase: VpnPhase.error,
+          error: 'Не удалось отключить VPN.',
+        ),
       );
     }
   }
@@ -455,14 +459,21 @@ class AppState extends ChangeNotifier {
     final host = owner.serverHost;
     final port = int.tryParse(owner.serverPort) ?? int.parse(kDefaultPort);
     final publicKey = owner.serverPublicKey.toLowerCase();
-    final existing = _findVps(creds.host, creds.port) ??
+    final existing =
+        _findVps(creds.host, creds.port) ??
         _findDuplicate(host, port, publicKey);
     final id = existing?.id ?? generateUuidV4();
     final name = existing?.name ?? creds.host;
 
     final secrets = _store.secrets;
-    await secrets.write(SecretKeys.profile(id, SecretKeys.rawKey), result.ownerKey);
-    await secrets.write(SecretKeys.profile(id, SecretKeys.adminToken), result.adminToken);
+    await secrets.write(
+      SecretKeys.profile(id, SecretKeys.rawKey),
+      result.ownerKey,
+    );
+    await secrets.write(
+      SecretKeys.profile(id, SecretKeys.adminToken),
+      result.adminToken,
+    );
     await _writeOrDelete(id, SecretKeys.vpsPassword, creds.password);
     await _writeOrDelete(id, SecretKeys.vpsPrivateKeyPem, creds.privateKeyPem);
     await _writeOrDelete(id, SecretKeys.vpsPassphrase, creds.passphrase);
@@ -497,9 +508,15 @@ class AppState extends ChangeNotifier {
     final vps = profile?.vps;
     if (profile == null || vps == null) return null;
     final secrets = _store.secrets;
-    final password = await secrets.read(SecretKeys.profile(profileId, SecretKeys.vpsPassword));
-    final pem = await secrets.read(SecretKeys.profile(profileId, SecretKeys.vpsPrivateKeyPem));
-    final passphrase = await secrets.read(SecretKeys.profile(profileId, SecretKeys.vpsPassphrase));
+    final password = await secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.vpsPassword),
+    );
+    final pem = await secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.vpsPrivateKeyPem),
+    );
+    final passphrase = await secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.vpsPassphrase),
+    );
     return VpsCredentials(
       host: vps.host,
       port: vps.port,
@@ -513,7 +530,9 @@ class AppState extends ChangeNotifier {
 
   /// Returns the keyserver admin token of a VPS profile, or null.
   Future<String?> adminToken(String profileId) async {
-    final value = await _store.secrets.read(SecretKeys.profile(profileId, SecretKeys.adminToken));
+    final value = await _store.secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.adminToken),
+    );
     return _nonEmptyOrNull(value);
   }
 
@@ -530,9 +549,85 @@ class AppState extends ChangeNotifier {
     _notify();
   }
 
+  /// Saves the outcome of a server reset: the new owner key, and every key issued from
+  /// this server is removed, because the reset cut off its old keys. Returns how many
+  /// issued keys were removed.
+  Future<int> applyVpsReset(
+    String profileId,
+    ResetResult result, {
+    String? hostKey,
+  }) async {
+    await updateVpsProfile(
+      profileId,
+      hostKey: hostKey,
+      ownerKey: result.ownerKey,
+      ownerConfig: result.ownerConfig,
+    );
+    final stale = [
+      for (final key in _store.issuedKeys)
+        if (key.serverId == profileId) key.id,
+    ];
+    for (final id in stale) {
+      await _store.removeIssued(id);
+    }
+    if (stale.isNotEmpty) _notify();
+    _log('Сервер обнулён, ключей удалено: ${stale.length}');
+    return stale.length;
+  }
+
+  /// Saves the outcome of an in-place core update. When the TCP port changed, the owner
+  /// key is rebuilt on the new ports. Keys issued earlier keep the old port and must be
+  /// issued again. Returns true when the port changed.
+  Future<bool> applyVpsUpdate(
+    String profileId,
+    UpdateResult result, {
+    required String serverVersion,
+    String? hostKey,
+  }) async {
+    final current = profileById(profileId);
+    if (current == null || current.vps == null) {
+      throw const AppStateException('Профиль VPS не найден.');
+    }
+    final portChanged = current.port != result.tcpPort;
+    String? rebuiltKey;
+    ClientConfig? rebuiltConfig;
+    if (portChanged) {
+      final stored = await ownerKey(profileId);
+      if (stored == null) {
+        throw const AppStateException(
+          'Порт изменился, но владельческий ключ не найден на этом устройстве. '
+          'Переустанови сервер.',
+        );
+      }
+      final rebuilt = rebuildOwnerKey(
+        parseKey(stored),
+        port: '${result.tcpPort}',
+        udpPort: '${result.udpPort}',
+      );
+      rebuiltKey = rebuilt.key;
+      rebuiltConfig = rebuilt.config;
+    }
+    await updateVpsProfile(
+      profileId,
+      hostKey: hostKey,
+      serverVersion: serverVersion,
+      needsUpdate: false,
+      ownerKey: rebuiltKey,
+      ownerConfig: rebuiltConfig,
+    );
+    if (portChanged) {
+      _log(
+        'Порт сервера изменился на ${result.tcpPort}, ключ владельца пересобран',
+      );
+    }
+    return portChanged;
+  }
+
   /// Returns the owner key (OBSDN) of a VPS profile, or null.
   Future<String?> ownerKey(String profileId) async {
-    final value = await _store.secrets.read(SecretKeys.profile(profileId, SecretKeys.rawKey));
+    final value = await _store.secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.rawKey),
+    );
     return _nonEmptyOrNull(value);
   }
 
@@ -559,22 +654,40 @@ class AppState extends ChangeNotifier {
     final secrets = _store.secrets;
     if (creds != null) {
       await _writeOrDelete(profileId, SecretKeys.vpsPassword, creds.password);
-      await _writeOrDelete(profileId, SecretKeys.vpsPrivateKeyPem, creds.privateKeyPem);
-      await _writeOrDelete(profileId, SecretKeys.vpsPassphrase, creds.passphrase);
+      await _writeOrDelete(
+        profileId,
+        SecretKeys.vpsPrivateKeyPem,
+        creds.privateKeyPem,
+      );
+      await _writeOrDelete(
+        profileId,
+        SecretKeys.vpsPassphrase,
+        creds.passphrase,
+      );
     }
     if (ownerKey != null) {
-      await secrets.write(SecretKeys.profile(profileId, SecretKeys.rawKey), ownerKey);
+      await secrets.write(
+        SecretKeys.profile(profileId, SecretKeys.rawKey),
+        ownerKey,
+      );
     }
     if (adminToken != null) {
-      await secrets.write(SecretKeys.profile(profileId, SecretKeys.adminToken), adminToken);
+      await secrets.write(
+        SecretKeys.profile(profileId, SecretKeys.adminToken),
+        adminToken,
+      );
     }
     final owner = ownerConfig;
     final profile = ServerProfile(
       id: current.id,
       name: current.name,
       countryCode: current.countryCode,
-      host: owner == null || owner.serverHost.isEmpty ? current.host : owner.serverHost,
-      port: owner == null ? current.port : (int.tryParse(owner.serverPort) ?? current.port),
+      host: owner == null || owner.serverHost.isEmpty
+          ? current.host
+          : owner.serverHost,
+      port: owner == null
+          ? current.port
+          : (int.tryParse(owner.serverPort) ?? current.port),
       serverPublicKey: owner == null
           ? current.serverPublicKey
           : owner.serverPublicKey.toLowerCase(),
@@ -584,7 +697,11 @@ class AppState extends ChangeNotifier {
       isFavorite: current.isFavorite,
       vps: creds == null
           ? current.vps
-          : VpsCredentials(host: creds.host, port: creds.port, user: creds.user),
+          : VpsCredentials(
+              host: creds.host,
+              port: creds.port,
+              user: creds.user,
+            ),
       vpsHostKey: hostKey ?? current.vpsHostKey,
       serverVersion: serverVersion ?? current.serverVersion,
       needsUpdate: needsUpdate ?? current.needsUpdate,
@@ -664,9 +781,13 @@ class AppState extends ChangeNotifier {
   /// keypair, and the split tunnel fields (`split_tunnel_mode`, `split_sites`
   /// with the effective entries, `split_presets`).
   Future<String> _buildConfigJson(ServerProfile profile) async {
-    final rawKey = await _store.secrets.read(SecretKeys.profile(profile.id, SecretKeys.rawKey));
+    final rawKey = await _store.secrets.read(
+      SecretKeys.profile(profile.id, SecretKeys.rawKey),
+    );
     if (rawKey == null || rawKey.trim().isEmpty) {
-      throw const AppStateException('Ключ сервера не найден. Добавьте сервер заново.');
+      throw const AppStateException(
+        'Ключ сервера не найден. Добавьте сервер заново.',
+      );
     }
     final base = parseKey(rawKey);
     final keypair = await _loadOrCreateKeypair(profile.id);
@@ -684,8 +805,12 @@ class AppState extends ChangeNotifier {
 
   Future<(String, String)> _loadOrCreateKeypair(String profileId) async {
     final secrets = _store.secrets;
-    final privateKey = await secrets.read(SecretKeys.profile(profileId, SecretKeys.clientPrivateKey));
-    final publicKey = await secrets.read(SecretKeys.profile(profileId, SecretKeys.clientPublicKey));
+    final privateKey = await secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.clientPrivateKey),
+    );
+    final publicKey = await secrets.read(
+      SecretKeys.profile(profileId, SecretKeys.clientPublicKey),
+    );
     if (privateKey != null &&
         privateKey.isNotEmpty &&
         publicKey != null &&
@@ -693,8 +818,14 @@ class AppState extends ChangeNotifier {
       return (privateKey, publicKey);
     }
     final (newPrivate, newPublic) = await generateClientKeypair();
-    await secrets.write(SecretKeys.profile(profileId, SecretKeys.clientPrivateKey), newPrivate);
-    await secrets.write(SecretKeys.profile(profileId, SecretKeys.clientPublicKey), newPublic);
+    await secrets.write(
+      SecretKeys.profile(profileId, SecretKeys.clientPrivateKey),
+      newPrivate,
+    );
+    await secrets.write(
+      SecretKeys.profile(profileId, SecretKeys.clientPublicKey),
+      newPublic,
+    );
     return (newPrivate, newPublic);
   }
 
@@ -726,7 +857,9 @@ class AppState extends ChangeNotifier {
 
   void _attachLifecycle() {
     _lifecycle = AppLifecycleListener(onStateChange: _onLifecycleState);
-    _onLifecycleState(WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed);
+    _onLifecycleState(
+      WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed,
+    );
   }
 
   void _onLifecycleState(AppLifecycleState state) {

@@ -2,15 +2,18 @@ import 'package:obsidian_vpn/core/codec/client_config.dart';
 import 'package:obsidian_vpn/core/codec/obsidian_key.dart';
 import 'package:obsidian_vpn/vps/key_issuer.dart';
 
-/// Rebuilds the owner key after a server change (SNI, IPv6 or reset).
+/// Rebuilds the owner key after a server change (SNI, IPv6, port or reset).
 ///
 /// [server] is the parsed owner key. Its server keys stay as they are, and only the
-/// given settings change. The result has no expiry and 3 devices, like the deployer's
-/// owner key. Keys issued earlier still carry the old settings.
+/// given settings change. [port] and [udpPort] are the TCP and UDP ports as strings.
+/// The result has no expiry and 3 devices, like the deployer's owner key. Keys issued
+/// earlier still carry the old settings.
 ({String key, ClientConfig config}) rebuildOwnerKey(
   ClientConfig server, {
   String? sni,
   bool? ipv6,
+  String? port,
+  String? udpPort,
 }) {
   var config = server;
   if (sni != null) {
@@ -19,6 +22,17 @@ import 'package:obsidian_vpn/vps/key_issuer.dart';
   if (ipv6 != null) {
     config = config.copyWith(enableIpv6: ipv6);
   }
-  final issued = issueKey(serverConfig: config, name: 'Owner', days: 0, devices: 3);
+  if (port != null) {
+    config = config.copyWith(serverPort: port);
+  }
+  if (udpPort != null) {
+    config = config.copyWith(udpPort: udpPort);
+  }
+  final issued = issueKey(
+    serverConfig: config,
+    name: 'Owner',
+    days: 0,
+    devices: 3,
+  );
   return (key: issued.key, config: parseKey(issued.key));
 }

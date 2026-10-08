@@ -170,6 +170,11 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String accessDaysShort(int days) {
+    return '$days дн.';
+  }
+
+  @override
   String get accessExpired => 'Срок истёк';
 
   @override
@@ -528,6 +533,15 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get vpsResetDone => 'Сервер обнулён, владельческий ключ обновлён';
+
+  @override
+  String vpsResetDoneRevoked(int count) {
+    return 'Сервер обнулён, владельческий ключ обновлён. Выданных ключей удалено: $count.';
+  }
+
+  @override
+  String get vpsUpdateDonePortChanged =>
+      'Ядро обновлено. Порт изменился: ранее выданные ключи нужно выдать заново.';
 
   @override
   String get vpsSheetCheck => 'Проверка версии';

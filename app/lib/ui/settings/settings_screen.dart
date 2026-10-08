@@ -42,167 +42,147 @@ class SettingsScreen extends StatelessWidget {
     final settings = state.settings;
     final l10n = AppLocalizations.of(context);
     final c = context.obs.colors;
-    final gutter = MediaQuery.sizeOf(context).width >= 720
-        ? Space.gutterWide
-        : Space.gutterNarrow;
 
     Future<void> save(AppSettings next) => _save(context, next);
 
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(gutter, Space.s24, gutter, Space.s32),
+    return TabPage(
+      title: l10n.navSettings,
+      children: [
+        ObsGroup(
+          label: l10n.settingsSectionConnection,
           children: [
-            Text(
-              l10n.navSettings,
-              style: Theme.of(context).textTheme.headlineSmall,
+            _SwitchRow(
+              title: l10n.settingsAutoConnect,
+              value: settings.autoConnect,
+              onChanged: (v) => save(settings.copyWith(autoConnect: v)),
             ),
-            const SizedBox(height: Space.s24),
-            ObsGroup(
-              label: l10n.settingsSectionConnection,
-              children: [
-                _SwitchRow(
-                  title: l10n.settingsAutoConnect,
-                  value: settings.autoConnect,
-                  onChanged: (v) => save(settings.copyWith(autoConnect: v)),
+            if (isIOS)
+              _SwitchRow(
+                title: l10n.settingsKillSwitch,
+                subtitle: l10n.settingsKillSwitchIosCaption,
+                value: settings.killSwitch,
+                onChanged: (v) => save(settings.copyWith(killSwitch: v)),
+              ),
+            if (isAndroid)
+              ObsRow(
+                title: l10n.settingsKillSwitch,
+                subtitle: l10n.settingsKillSwitchAndroidCaption,
+                trailing: Icon(
+                  Icons.open_in_new_rounded,
+                  size: 20,
+                  color: c.textFaint,
                 ),
-                if (isIOS)
-                  _SwitchRow(
-                    title: l10n.settingsKillSwitch,
-                    subtitle: l10n.settingsKillSwitchIosCaption,
-                    value: settings.killSwitch,
-                    onChanged: (v) => save(settings.copyWith(killSwitch: v)),
-                  ),
-                if (isAndroid)
-                  ObsRow(
-                    title: l10n.settingsKillSwitch,
-                    subtitle: l10n.settingsKillSwitchAndroidCaption,
-                    trailing: Icon(
-                      Icons.open_in_new_rounded,
-                      size: 20,
-                      color: c.textFaint,
-                    ),
-                    onTap: () => _openVpnSettings(context),
-                  ),
+                onTap: () => _openVpnSettings(context),
+              ),
+          ],
+        ),
+        ObsGroup(
+          label: l10n.settingsSectionInterface,
+          children: [
+            _SegmentRow<AppThemeMode>(
+              title: l10n.settingsTheme,
+              value: settings.themeMode,
+              options: [
+                ObsSegment(
+                  value: AppThemeMode.system,
+                  label: l10n.settingsThemeSystem,
+                ),
+                ObsSegment(
+                  value: AppThemeMode.dark,
+                  label: l10n.settingsThemeDark,
+                ),
+                ObsSegment(
+                  value: AppThemeMode.light,
+                  label: l10n.settingsThemeLight,
+                ),
               ],
+              onChanged: (v) => save(settings.copyWith(themeMode: v)),
             ),
-            const SizedBox(height: Space.s24),
-            ObsGroup(
-              label: l10n.settingsSectionInterface,
-              children: [
-                _SegmentRow<AppThemeMode>(
-                  title: l10n.settingsTheme,
-                  value: settings.themeMode,
-                  options: [
-                    ObsSegment(
-                      value: AppThemeMode.system,
-                      label: l10n.settingsThemeSystem,
-                    ),
-                    ObsSegment(
-                      value: AppThemeMode.dark,
-                      label: l10n.settingsThemeDark,
-                    ),
-                    ObsSegment(
-                      value: AppThemeMode.light,
-                      label: l10n.settingsThemeLight,
-                    ),
-                  ],
-                  onChanged: (v) => save(settings.copyWith(themeMode: v)),
+            _SegmentRow<AppLocalePref>(
+              title: l10n.settingsLanguage,
+              value: settings.locale,
+              options: [
+                ObsSegment(
+                  value: AppLocalePref.system,
+                  label: l10n.settingsLocaleSystem,
                 ),
-                _SegmentRow<AppLocalePref>(
-                  title: l10n.settingsLanguage,
-                  value: settings.locale,
-                  options: [
-                    ObsSegment(
-                      value: AppLocalePref.system,
-                      label: l10n.settingsLocaleSystem,
-                    ),
-                    ObsSegment(
-                      value: AppLocalePref.ru,
-                      label: l10n.settingsLocaleRu,
-                    ),
-                    ObsSegment(
-                      value: AppLocalePref.en,
-                      label: l10n.settingsLocaleEn,
-                    ),
-                  ],
-                  onChanged: (v) => save(settings.copyWith(locale: v)),
+                ObsSegment(
+                  value: AppLocalePref.ru,
+                  label: l10n.settingsLocaleRu,
                 ),
-                if (isMobile)
-                  _SwitchRow(
-                    title: l10n.settingsHaptics,
-                    value: settings.haptics,
-                    onChanged: (v) => save(settings.copyWith(haptics: v)),
-                  ),
+                ObsSegment(
+                  value: AppLocalePref.en,
+                  label: l10n.settingsLocaleEn,
+                ),
               ],
+              onChanged: (v) => save(settings.copyWith(locale: v)),
             ),
-            if (isDesktop) ...[
-              const SizedBox(height: Space.s24),
-              ObsGroup(
-                label: l10n.settingsSectionDesktop,
-                children: [
-                  _SwitchRow(
-                    title: l10n.settingsAutostart,
-                    value: settings.autostart,
-                    onChanged: (v) => save(settings.copyWith(autostart: v)),
-                  ),
-                  _SwitchRow(
-                    title: l10n.settingsMinimizeToTray,
-                    subtitle: l10n.settingsMinimizeToTrayCaption,
-                    value: settings.minimizeToTray,
-                    onChanged: (v) =>
-                        save(settings.copyWith(minimizeToTray: v)),
-                  ),
-                ],
+            if (isMobile)
+              _SwitchRow(
+                title: l10n.settingsHaptics,
+                value: settings.haptics,
+                onChanged: (v) => save(settings.copyWith(haptics: v)),
+              ),
+          ],
+        ),
+        if (isDesktop)
+          ObsGroup(
+            label: l10n.settingsSectionDesktop,
+            children: [
+              _SwitchRow(
+                title: l10n.settingsAutostart,
+                value: settings.autostart,
+                onChanged: (v) => save(settings.copyWith(autostart: v)),
+              ),
+              _SwitchRow(
+                title: l10n.settingsMinimizeToTray,
+                subtitle: l10n.settingsMinimizeToTrayCaption,
+                value: settings.minimizeToTray,
+                onChanged: (v) => save(settings.copyWith(minimizeToTray: v)),
               ),
             ],
-            const SizedBox(height: Space.s24),
-            ObsGroup(
-              label: l10n.settingsSectionDiagnostics,
-              children: [
-                ObsRow(
-                  title: l10n.settingsConnectionLog,
-                  trailing: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 22,
-                    color: c.textFaint,
-                  ),
-                  onTap: () => Navigator.of(
-                    context,
-                  ).push<void>(_pageRoute(const LogsScreen())),
-                ),
-                ObsRow(
-                  title: l10n.settingsDeviceId,
-                  subtitle: groupDeviceId(state.deviceId),
-                  subtitleMono: true,
-                  trailing: Icon(
-                    Icons.content_copy_rounded,
-                    size: 18,
-                    color: c.textFaint,
-                  ),
-                  onTap: () => _copyDeviceId(context, state.deviceId),
-                ),
-              ],
+          ),
+        ObsGroup(
+          label: l10n.settingsSectionDiagnostics,
+          children: [
+            ObsRow(
+              title: l10n.settingsConnectionLog,
+              trailing: Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: c.textFaint,
+              ),
+              onTap: () => Navigator.of(
+                context,
+              ).push<void>(_pageRoute(const LogsScreen())),
             ),
-            const SizedBox(height: Space.s24),
-            ObsGroup(
-              label: l10n.settingsSectionAbout,
-              children: [
-                ObsRow(
-                  title: l10n.settingsVersion,
-                  trailing: Text(
-                    _appVersion,
-                    style: context.obs.mono.copyWith(color: c.textDim),
-                  ),
-                ),
-                _InfoRow(l10n.settingsProtocol),
-              ],
+            ObsRow(
+              title: l10n.settingsDeviceId,
+              subtitle: groupDeviceId(state.deviceId),
+              subtitleMono: true,
+              trailing: Icon(
+                Icons.content_copy_rounded,
+                size: 18,
+                color: c.textFaint,
+              ),
+              onTap: () => _copyDeviceId(context, state.deviceId),
             ),
           ],
         ),
-      ),
+        ObsGroup(
+          label: l10n.settingsSectionAbout,
+          children: [
+            ObsRow(
+              title: l10n.settingsVersion,
+              trailing: Text(
+                _appVersion,
+                style: context.obs.mono.copyWith(color: c.textDim),
+              ),
+            ),
+            _InfoRow(l10n.settingsProtocol),
+          ],
+        ),
+      ],
     );
   }
 
@@ -295,7 +275,7 @@ class _SwitchRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: Space.s12),
-            Switch.adaptive(value: value, onChanged: onChanged),
+            ObsSwitch(value: value, onChanged: onChanged),
           ],
         ),
       ),

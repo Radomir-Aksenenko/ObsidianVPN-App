@@ -25,50 +25,42 @@ class AccessScreen extends StatelessWidget {
     final l = AppLocalizations.of(context);
     final c = context.obs.colors;
     final state = AppState.of(context);
-    final servers = state.profiles.where((p) => p.source == ProfileSource.vps).toList();
+    final servers = state.profiles
+        .where((p) => p.source == ProfileSource.vps)
+        .toList();
     final keys = state.issuedKeys;
     final hasServers = servers.isNotEmpty;
 
     void openDeploy() {
       Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => DeployWizardScreen(deployer: deployer)),
-      );
-    }
-
-    if (!hasServers && keys.isEmpty) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(Space.s20, Space.s24, Space.s20, Space.s24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(l.navAccess, style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: Space.s24),
-                ObsEmptyState(
-                  text: l.accessEmpty,
-                  actionLabel: l.accessDeploy,
-                  onAction: openDeploy,
-                ),
-              ],
-            ),
-          ),
+        MaterialPageRoute<void>(
+          builder: (_) => DeployWizardScreen(deployer: deployer),
         ),
       );
     }
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(Space.s20, Space.s24, Space.s20, Space.s32),
+    if (!hasServers && keys.isEmpty) {
+      return TabPage(
+        title: l.navAccess,
+        children: [
+          ObsEmptyState(
+            text: l.accessEmpty,
+            actionLabel: l.accessDeploy,
+            onAction: openDeploy,
+          ),
+        ],
+      );
+    }
+
+    // Each section is one spaced child of TabPage. The buttons stay 12 px under their group.
+    return TabPage(
+      title: l.navAccess,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(l.navAccess, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: Space.s24),
-            SectionLabel(l.accessServers),
-            const SizedBox(height: Space.s8),
             ObsGroup(
+              label: l.accessServers,
               children: <Widget>[
                 for (final profile in servers)
                   _ServerRow(
@@ -91,16 +83,22 @@ class AccessScreen extends StatelessWidget {
               kind: ObsButtonKind.secondary,
               onPressed: openDeploy,
             ),
-            const SizedBox(height: Space.s24),
-            SectionLabel(l.accessKeys),
-            const SizedBox(height: Space.s8),
-            if (keys.isEmpty)
-              Text(l.accessKeysEmpty, style: vpsBodyDim(context).copyWith(fontSize: 13))
-            else
+          ],
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (keys.isEmpty) ...[
+              SectionLabel(l.accessKeys),
+              Text(
+                l.accessKeysEmpty,
+                style: vpsBodyDim(context).copyWith(fontSize: 13),
+              ),
+            ] else
               ObsGroup(
+                label: l.accessKeys,
                 children: <Widget>[
-                  for (final key in keys)
-                    _KeyRow(issued: key),
+                  for (final key in keys) _KeyRow(issued: key),
                 ],
               ),
             const SizedBox(height: Space.s12),
@@ -112,18 +110,24 @@ class AccessScreen extends StatelessWidget {
               const SizedBox(height: Space.s8),
               Text(
                 l.accessIssueNeedsServer,
-                style: vpsBodyDim(context).copyWith(fontSize: 12, color: c.textDim),
+                style: vpsBodyDim(
+                  context,
+                ).copyWith(fontSize: 12, color: c.textDim),
               ),
             ],
           ],
         ),
-      ),
+      ],
     );
   }
 }
 
 class _ServerRow extends StatelessWidget {
-  const _ServerRow({required this.profile, required this.ping, required this.onTap});
+  const _ServerRow({
+    required this.profile,
+    required this.ping,
+    required this.onTap,
+  });
 
   final ServerProfile profile;
   final int? ping;
@@ -135,7 +139,9 @@ class _ServerRow extends StatelessWidget {
     final vps = profile.vps;
     return ObsRow(
       title: profile.name,
-      subtitle: vps == null ? profile.host : '${vps.user}@${vps.host}:${vps.port}',
+      subtitle: vps == null
+          ? profile.host
+          : '${vps.user}@${vps.host}:${vps.port}',
       subtitleMono: true,
       leading: CountryTag(profile.countryCode),
       trailing: Row(
@@ -162,22 +168,39 @@ class _KeyRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final c = context.obs.colors;
+    final serverName =
+        AppState.of(context).profileById(issued.serverId)?.name ??
+        issued.serverId;
     return ObsRow(
       title: issued.name,
-      subtitle: '${l.accessDevices(issued.devices)} · ${_validity(l)}',
-      trailing: PopupMenuButton<String>(
-        tooltip: l.accessKeyMore,
-        icon: Icon(Icons.more_horiz_rounded, color: c.textDim),
-        onSelected: (_) => _delete(context),
-        itemBuilder: (_) => <PopupMenuEntry<String>>[
-          PopupMenuItem<String>(
-            value: 'delete',
-            child: Text(l.accessKeyDelete, style: TextStyle(color: c.danger)),
+      subtitle: '$serverName · ${l.accessDevices(issued.devices)}',
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _validity(l),
+            style: obsidianMono(c, size: 12, color: c.textDim),
+          ),
+          PopupMenuButton<String>(
+            tooltip: l.accessKeyMore,
+            icon: Icon(Icons.more_horiz_rounded, color: c.textDim),
+            onSelected: (_) => _delete(context),
+            itemBuilder: (_) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Text(
+                  l.accessKeyDelete,
+                  style: TextStyle(color: c.danger),
+                ),
+              ),
+            ],
           ),
         ],
       ),
       onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => IssuedKeyScreen(issued: issued)),
+        MaterialPageRoute<void>(
+          builder: (_) => IssuedKeyScreen(issued: issued),
+        ),
       ),
     );
   }
@@ -186,7 +209,7 @@ class _KeyRow extends StatelessWidget {
     if (issued.days == 0) return l.accessForever;
     final expires = issued.created.add(Duration(days: issued.days));
     final left = expires.difference(DateTime.now().toUtc()).inDays;
-    return left <= 0 ? l.accessExpired : l.accessDaysLeft(left);
+    return left <= 0 ? l.accessExpired : l.accessDaysShort(left);
   }
 
   Future<void> _delete(BuildContext context) async {
@@ -200,6 +223,8 @@ class _KeyRow extends StatelessWidget {
     );
     if (!ok || !context.mounted) return;
     await AppState.of(context).removeIssuedKey(issued.id);
-    if (context.mounted) showObsToast(context, l.accessKeyDeleted, kind: ObsToastKind.success);
+    if (context.mounted) {
+      showObsToast(context, l.accessKeyDeleted, kind: ObsToastKind.success);
+    }
   }
 }

@@ -18,6 +18,18 @@ const double _sweepDeg = 30;
 
 double _rad(double deg) => deg * math.pi / 180;
 
+/// How many ring segments (0..4) are lit ember for [s]. The phase decides the
+/// result, not the stage: connected lights all segments and disconnected or
+/// disconnecting lights none, because some backends report connected with a
+/// stage below 4 (Android never sends stage 2). A failed handshake lights the
+/// segments before the failed one.
+int litSegments(VpnStatus s) => switch (s.phase) {
+  VpnPhase.connected => _segments,
+  VpnPhase.connecting || VpnPhase.reconnecting => s.stage,
+  VpnPhase.error => math.min(s.stage, _segments - 1),
+  VpnPhase.disconnected || VpnPhase.disconnecting => 0,
+};
+
 /// Where each of the 4 ring segments starts, in degrees from 3 o'clock (clockwise).
 /// The first gap is centred on 12 o'clock.
 double _segmentStart(int i) => -90 + _gapDeg / 2 + i * (_segmentDeg + _gapDeg);
@@ -77,14 +89,7 @@ class _ConnectDialState extends State<ConnectDial>
   static int? _errorSegment(VpnStatus s) =>
       s.phase == VpnPhase.error ? math.min(s.stage, _segments - 1) : null;
 
-  static double _fillTarget(VpnStatus s) {
-    return switch (s.phase) {
-      VpnPhase.connected => _segments.toDouble(),
-      VpnPhase.connecting || VpnPhase.reconnecting => s.stage.toDouble(),
-      VpnPhase.error => _errorSegment(s)!.toDouble(),
-      VpnPhase.disconnected || VpnPhase.disconnecting => 0,
-    };
-  }
+  static double _fillTarget(VpnStatus s) => litSegments(s).toDouble();
 
   @override
   void initState() {
@@ -319,7 +324,7 @@ class DialPainter extends CustomPainter {
     for (var i = 0; i < _segments; i++) {
       final start = _rad(_segmentStart(i));
       final sweepRad = _rad(_segmentDeg);
-      ring.color = colors.line;
+      ring.color = colors.idleRing;
       canvas.drawArc(ringRect, start, sweepRad, false, ring);
 
       if (errorSegment == i) {

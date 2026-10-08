@@ -57,6 +57,14 @@
       }
     }
   },
+  "accessDaysShort": "{days} d",
+  "@accessDaysShort": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "accessExpired": "Expired",
   "accessDevices": "Devices: {count}",
   "@accessDevices": {
@@ -211,6 +219,15 @@
   "vpsResetText": "All keys issued from this server will stop working. The server gets new keys and the owner key is rebuilt.",
   "vpsResetConfirm": "Reset",
   "vpsResetDone": "Server reset, owner key updated",
+  "vpsResetDoneRevoked": "Server reset, owner key updated. Issued keys removed: {count}.",
+  "@vpsResetDoneRevoked": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vpsUpdateDonePortChanged": "Core updated. The port changed: keys issued before must be issued again.",
   "vpsSheetCheck": "Checking version",
   "vpsSheetSni": "Changing SNI",
   "vpsSheetUpdate": "Updating core",

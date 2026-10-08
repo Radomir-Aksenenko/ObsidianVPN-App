@@ -17,6 +17,7 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
     required this.ok,
     required this.warn,
     required this.danger,
+    required this.idleRing,
   });
 
   /// Dark glass: the default theme.
@@ -34,6 +35,7 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
     ok: Color(0xFF46C78A),
     warn: Color(0xFFF5B83D),
     danger: Color(0xFFE5484D),
+    idleRing: Color(0xFF26292E),
   );
 
   static const light = ObsidianColors(
@@ -50,6 +52,8 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
     ok: Color(0xFF1F9D61),
     warn: Color(0xFFB7791F),
     danger: Color(0xFFCD2B31),
+    // The idle dial ring must stay visible on the light background, so it is darker than line.
+    idleRing: Color(0xFF9A9DA3),
   );
 
   final Color bg;
@@ -68,6 +72,9 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
   final Color warn;
   final Color danger;
 
+  /// Idle segments of the dial ring. Line in dark; textFaint in light for contrast.
+  final Color idleRing;
+
   @override
   ObsidianColors copyWith({
     Color? bg,
@@ -83,6 +90,7 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
     Color? ok,
     Color? warn,
     Color? danger,
+    Color? idleRing,
   }) {
     return ObsidianColors(
       bg: bg ?? this.bg,
@@ -98,6 +106,7 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
       ok: ok ?? this.ok,
       warn: warn ?? this.warn,
       danger: danger ?? this.danger,
+      idleRing: idleRing ?? this.idleRing,
     );
   }
 
@@ -118,6 +127,7 @@ class ObsidianColors extends ThemeExtension<ObsidianColors> {
       ok: Color.lerp(ok, other.ok, t)!,
       warn: Color.lerp(warn, other.warn, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
+      idleRing: Color.lerp(idleRing, other.idleRing, t)!,
     );
   }
 }
