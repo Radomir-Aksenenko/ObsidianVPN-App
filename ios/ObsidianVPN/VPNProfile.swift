@@ -125,14 +125,30 @@ struct VPNProfile: Identifiable, Codable, Hashable, Sendable {
     var countryCode: String
     var configURI: String
     var isFavorite: Bool
+    /// Раздельное туннелирование. Optional, чтобы старые сохраненные профили декодировались без изменений.
+    var splitTunnel: SplitTunnelConfig?
 
-    init(id: UUID = UUID(), name: String, city: String, countryCode: String, configURI: String, isFavorite: Bool = false) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        city: String,
+        countryCode: String,
+        configURI: String,
+        isFavorite: Bool = false,
+        splitTunnel: SplitTunnelConfig? = nil
+    ) {
         self.id = id
         self.name = name
         self.city = city
         self.countryCode = countryCode.uppercased()
         self.configURI = configURI
         self.isFavorite = isFavorite
+        self.splitTunnel = splitTunnel
+    }
+
+    /// Правила для работы: nil трактуется как выключено.
+    var effectiveSplit: SplitTunnelConfig {
+        splitTunnel ?? SplitTunnelConfig()
     }
 
     var endpoint: String {
@@ -170,11 +186,16 @@ struct VPNProfile: Identifiable, Codable, Hashable, Sendable {
             ? (hostOrEndpoint.isEmpty ? chosenName : hostOrEndpoint)
             : location.city
 
+        // Поля раздельного туннелирования могут прийти в параметрах ссылки (split_tunnel_mode, split_sites).
+        let queryFields: [String: String] = parsed?.queryItems ?? [:]
+        let split = SplitTunnelConfig.imported(from: queryFields)
+
         return VPNProfile(
             name: chosenName,
             city: displayCity,
             countryCode: location.code,
-            configURI: value
+            configURI: value,
+            splitTunnel: split
         )
     }
 

@@ -18,6 +18,7 @@ targets:
     platform: iOS
     sources:
       - path: ObsidianVPN
+      - path: Shared
     dependencies:
       - target: PacketTunnel
         embed: true
@@ -46,6 +47,7 @@ targets:
     platform: iOS
     sources:
       - path: PacketTunnel
+      - path: Shared
     dependencies:
       - framework: Frameworks/Obsidian.xcframework
         embed: false
