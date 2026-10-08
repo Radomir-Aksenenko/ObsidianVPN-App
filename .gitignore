@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Core binaries are downloaded by scripts/fetch-core.ps1, not committed
+src-tauri/resources/obsidian-client.exe
+src-tauri/resources/obsidian-server-linux
