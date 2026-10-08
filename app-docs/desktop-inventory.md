@@ -1,3 +1,5 @@
+Старый клиент удалён из репозитория 2026-10-08, исходники в истории git до коммита acff4ce.
+
 # Old desktop client (Tauri): feature inventory
 
 Sources: `desktop/src/{main.js,styles.css,index.html}`, `desktop/src-tauri/src/{lib.rs,vpn.rs,installer.rs,keys.rs,storage.rs}`, `desktop/src-tauri/resources/keyserver.py`. Go client in `core/cmd/client`.

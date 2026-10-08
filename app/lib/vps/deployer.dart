@@ -12,7 +12,7 @@ import 'package:obsidian_vpn/vps/key_issuer.dart';
 import 'package:obsidian_vpn/vps/ssh_session.dart';
 import 'package:obsidian_vpn/vps/vps_models.dart';
 
-/// Core version of the bundle (desktop/src-tauri/Cargo.toml). Bump with the core build.
+/// Core version of the bundle. Bump with the core build.
 const String kBundledServerVersion = '1.1.1';
 
 /// Reads bundled files. The default reads Flutter assets; tests inject a fake.

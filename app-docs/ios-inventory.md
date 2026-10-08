@@ -1,3 +1,5 @@
+Старый клиент удалён из репозитория 2026-10-08, исходники в истории git до коммита acff4ce.
+
 # Old iOS client (SwiftUI + PacketTunnel): feature inventory
 
 Sources: `ios/` (project.yml, Config/, ObsidianVPN/, PacketTunnel/, Shared/), Go API `core/pkg/mobile/mobile.go`.

@@ -15,7 +15,7 @@ import 'logs_screen.dart';
 /// App version shown in About. Override at build time with `--dart-define=APP_VERSION=...`.
 const String _appVersion = String.fromEnvironment(
   'APP_VERSION',
-  defaultValue: '1.0.0',
+  defaultValue: '2.0.0',
 );
 
 /// Device id as shown to the user: the first 12 hex digits in groups of four

@@ -23,17 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# Go binaries and wintun.dll are produced from core/ (see scripts/build-desktop.bat and CI)
-desktop/src-tauri/resources/obsidian-client.exe
-desktop/src-tauri/resources/obsidian-server-linux
-desktop/src-tauri/resources/wintun.dll
 wintun.dll
 bin/
 !app/assets/bin/
 
-# iOS generated and build outputs
-ios/Frameworks/
-ios/Generated/
-ios/*.xcodeproj/
-ios/DerivedData/
+# iOS build outputs (Flutter app)
 *.ipa

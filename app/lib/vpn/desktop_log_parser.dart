@@ -90,7 +90,7 @@ class DesktopLogParser {
 }
 
 /// Russian message for a client that exited, from its last output lines.
-/// Port of `humanize_client_log` in desktop/src-tauri/src/vpn.rs.
+/// Port of `humanize_client_log` in the removed Tauri client (vpn.rs).
 String humanizeExit(List<String> lastLines) {
   final lower = lastLines.join('\n').toLowerCase();
   final last = lastLines

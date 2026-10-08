@@ -1,19 +1,18 @@
 # Obsidian VPN
 
-Клиенты Obsidian VPN для Windows и iPhone. VPN-ядро на Go находится в публичном репозитории ObsidianVPN и подключено сюда как submodule в каталоге `core/`.
+Obsidian VPN это одно приложение на Flutter для Windows, macOS, Linux, Android и iOS. Оно подключается к VPN-серверу на Go и умеет установить этот сервер на ваш VPS по SSH. Ядро VPN находится в публичном репозитории ObsidianVPN и подключено сюда как submodule в каталоге `core/`.
 
-## Что внутри
+## Структура репозитория
 
-- `desktop/` - приложение для Windows на Tauri 2 (интерфейс в `desktop/src`, логика на Rust в `desktop/src-tauri`).
-- `ios/` - клиент для iPhone на SwiftUI с Packet Tunnel Provider. Go Mobile XCFramework собирается из `core/pkg/mobile`.
-- `core/` - submodule с ядром: `cmd/client`, `cmd/server`, `pkg/mobile`.
-- `scripts/` - локальная сборка десктопа, загрузка wintun, проставление версии.
+- `app/` - приложение на Flutter: интерфейс, логика и нативные части для каждой платформы (`android/`, `ios/`, `macos/`, `linux/`, `windows/`).
+- `core/` - submodule с Go-ядром: `cmd/client`, `cmd/server`, `pkg/mobile`.
+- `server/keyserver.py` - скрипт keyserver, который приложение ставит на VPS вместе с ядром.
+- `scripts/` - сборка Go-бинарников в `app/assets/bin/` (`build-core-assets.ps1` и `.sh`), загрузка `wintun.dll` (`fetch-wintun.ps1`), проставление версии (`set-version.mjs`).
+- `app-docs/` - архитектура, дизайн и описания прежних клиентов.
 - `.github/workflows/` - сборка и релизы.
-- `VERSION` - единый источник версии для всех клиентов.
+- `VERSION` - номер версии. Из него берётся версия релиза.
 
-## Локальная сборка
-
-Клонирование с submodule:
+## Клонирование
 
 ```sh
 git clone --recurse-submodules <адрес репозитория>
@@ -21,41 +20,37 @@ git clone --recurse-submodules <адрес репозитория>
 git submodule update --init --recursive
 ```
 
-Windows (нужны Go, Node.js 22+ и Rust, как для любого проекта на Tauri):
+## Сборка и релизы в CI
 
-```bat
-scripts\build-desktop.bat
-```
+Приложения собираются только в GitHub Actions. Workflow `app.yml` запускает сборку под Android, iOS, macOS, Linux и Windows. Workflow `release.yml` публикует результат.
 
-Скрипт собирает `obsidian-client.exe` и `obsidian-server-linux` из `core/`, скачивает `wintun.dll` (версия 0.14.1, SHA256 проверяется) и запускает `npx tauri build`. Установщик появится в `desktop\src-tauri\target\release\bundle\nsis\`.
-
-iPhone (нужен macOS с Xcode, XcodeGen и gomobile):
-
-```sh
-cd core
-gomobile bind -target=ios,iossimulator -o ../ios/Frameworks/Obsidian.xcframework ./pkg/mobile
-cd ../ios
-xcodegen generate
-open ObsidianVPN.xcodeproj
-```
-
-Подпись, Team и Network Extension настраиваются в `ios/README.md`.
-
-## CI
-
-- `ios.yml` собирает неподписанный `.ipa` (артефакт `ios-ipa`).
-- `desktop.yml` собирает установщик Windows (артефакт `windows-installer`).
-- Оба запускаются на pull request и вручную (`workflow_dispatch`). Для push в main их вызывает `release.yml`.
-- `release.yml`: push в main обновляет предрелиз `nightly` (старые файлы заменяются новыми). Tag `v*` создаёт релиз с заметками.
+- Push в `main` заменяет файлы предрелиза `nightly` свежими сборками.
+- Тег `vX.Y.Z`, совпадающий с `VERSION`, создаёт релиз с заметками. Если тег не совпадает с `VERSION`, публикация останавливается с ошибкой.
 
 ## Выпуск версии
 
-1. Изменить `VERSION`, например на `1.2.0`.
-2. Выполнить `node scripts/set-version.mjs`, чтобы обновить `desktop/`, `ios/project.yml` и `Cargo.lock`.
+1. Изменить `VERSION`, например на `2.0.1`.
+2. Выполнить `node scripts/set-version.mjs`. Скрипт запишет версию в `app/pubspec.yaml` как `2.0.1+1`. Номер сборки CI заменяет сам.
 3. Закоммитить изменения.
-4. Создать и отправить тег: `git tag v1.2.0`, затем `git push origin main v1.2.0`.
+4. Создать и отправить тег: `git tag v2.0.1`, затем `git push origin main v2.0.1`.
 
-Тег должен совпадать с `VERSION`, иначе публикация остановится с ошибкой. Номер сборки iOS (`CURRENT_PROJECT_VERSION`) CI выставляет сам по номеру запуска.
+## Установка
+
+- **Windows**: запустите установщик `setup.exe`.
+- **Android**: для большинства телефонов подходит APK с пометкой `arm64-v8a`. В релизе есть и другие варианты APK для старых и x86 устройств.
+- **iOS**: IPA в релизе не подписан. Установите его через AltStore или Sideloadly с вашим Apple ID.
+- **macOS**: при первом запуске откройте приложение через правый клик и пункт «Открыть». Затем подтвердите запуск.
+- **Linux**: распакуйте архив `tar.gz`. Туннелю нужны права root, поэтому приложение запрашивает их через `pkexec`.
+
+## Локальная разработка
+
+Локально проверяются анализ кода и тесты. Сборки выполняются только в CI.
+
+```sh
+cd app
+flutter analyze
+flutter test
+```
 
 ## Обновление ядра
 

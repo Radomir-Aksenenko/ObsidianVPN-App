@@ -84,7 +84,7 @@ else {
         exit 1
     }
 }
-Copy-Item -Force (Join-Path $Root 'desktop\src-tauri\resources\keyserver.py') (Join-Path $Out 'keyserver.py')
+Copy-Item -Force (Join-Path $Root 'server\keyserver.py') (Join-Path $Out 'keyserver.py')
 
 Write-Host "output: $((Get-ChildItem $Out).Count) files in $Out"
 if ($Failed.Count -gt 0) {

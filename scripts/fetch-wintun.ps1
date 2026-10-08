@@ -1,5 +1,5 @@
 # Downloads the pinned wintun 0.14.1 release and extracts bin/amd64/wintun.dll.
-# Used by scripts/build-desktop.bat and .github/workflows/desktop.yml.
+# Used by scripts/build-core-assets.ps1.
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\fetch-wintun.ps1 -Destination <path>
 
 param(

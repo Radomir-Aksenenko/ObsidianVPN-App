@@ -2,7 +2,7 @@
 // Записи того же формата, что и пользовательский ввод: домены, IPv4/IPv6 адреса и CIDR.
 // Каждый набор проходит тот же разбор, что и ввод пользователя (SplitRuleParser).
 //
-// Источники и даты снимков (портировано из ios/Shared/SplitPresets.swift):
+// Источники и даты снимков (портировано из удалённого iOS-клиента):
 // - Telegram: https://core.telegram.org/resources/cidr.txt, снимок 2026-10-08 (14 подсетей, см. ниже).
 // - Google (YouTube, Google Video): https://www.gstatic.com/ipranges/goog.json, снимок 2026-10-08
 //   (creationTime файла 2026-10-08T01:06:45). Все адреса Google, а не только YouTube:

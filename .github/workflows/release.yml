@@ -2,7 +2,7 @@ name: Release
 
 # Pushes to main publish the rolling "nightly" prerelease.
 # Pushes of a v* tag publish a versioned GitHub Release.
-# Assets: old client (ios, desktop) and the Flutter app (app.yml, copied to dist/ as Obsidian-<VERSION>-*).
+# Assets: the Flutter app (app.yml), copied to dist/ as Obsidian-<VERSION>-*.
 on:
   push:
     branches:
@@ -18,14 +18,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ios:
-    name: iOS
-    uses: ./.github/workflows/ios.yml
-
-  desktop:
-    name: Desktop
-    uses: ./.github/workflows/desktop.yml
-
   app:
     name: App
     uses: ./.github/workflows/app.yml
@@ -33,7 +25,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [ios, desktop, app]
+    needs: [app]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -46,18 +38,6 @@ jobs:
       - name: Read version
         id: version
         run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Download iOS IPA
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-ipa
-          path: dist
-
-      - name: Download Windows installer
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installer
-          path: dist
 
       - name: Download app Android build
         uses: actions/download-artifact@v4
@@ -113,6 +93,7 @@ jobs:
           copy_app_file obsidian-macos.zip "Obsidian-${VERSION}-macos.zip"
           copy_app_file obsidian-linux-x64.tar.gz "Obsidian-${VERSION}-linux-x64.tar.gz"
           copy_app_file obsidian-windows-x64.zip "Obsidian-${VERSION}-windows-x64.zip"
+          copy_app_file obsidian-windows-x64-setup.exe "Obsidian-${VERSION}-windows-x64-setup.exe"
 
       - name: Show assets
         run: ls -l dist

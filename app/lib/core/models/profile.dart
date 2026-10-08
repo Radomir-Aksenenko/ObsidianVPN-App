@@ -210,7 +210,7 @@ bool _matchesKeyword(String lowerName, String needle) {
   return pattern.hasMatch(lowerName);
 }
 
-/// The 13 countries of the iOS table (ios/ObsidianVPN/VPNProfile.swift),
+/// The 13 countries of the iOS table,
 /// merged with the desktop tags (Frankfurt, Amsterdam, London, Paris, Warsaw,
 /// Helsinki, Moscow).
 const List<(List<String>, String)> _countryTable = <(List<String>, String)>[

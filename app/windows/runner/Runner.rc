@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "com.obsidian" "\0"
             VALUE "FileDescription", "Obsidian" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "obsidian_vpn" "\0"
+            VALUE "InternalName", "Obsidian" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.obsidian. All rights reserved." "\0"
-            VALUE "OriginalFilename", "obsidian_vpn.exe" "\0"
+            VALUE "OriginalFilename", "Obsidian.exe" "\0"
             VALUE "ProductName", "Obsidian" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

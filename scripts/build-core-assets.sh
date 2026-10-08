@@ -106,7 +106,7 @@ stage_wintun() {
 }
 
 stage_wintun
-cp "$ROOT/desktop/src-tauri/resources/keyserver.py" "$OUT/keyserver.py"
+cp "$ROOT/server/keyserver.py" "$OUT/keyserver.py"
 
 echo "output: $(ls "$OUT" | wc -l) files in $OUT"
 if [ ${#FAILED[@]} -gt 0 ]; then

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 /// Removes network leftovers of the Windows tunnel. Port of `cleanup_system_network`
-/// in desktop/src-tauri/src/vpn.rs. Every command is run with no shell and its
+/// in the removed Tauri client (vpn.rs). Every command is run with no shell and its
 /// failure is ignored. The NRPT rule removal runs in the background, like the
 /// original, so it never delays the caller.
 ///

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:obsidian_vpn/vps/vps_models.dart';
 
-// Paths, names and ports of the server layout. Mirrors desktop/src-tauri/src/installer.rs.
+// Paths, names and ports of the server layout.
 const String kServerDir = '/opt/obsidian';
 const String kServerBin = '$kServerDir/obsidian-server';
 const String kServerConfig = '$kServerDir/obsidian-server.json';
