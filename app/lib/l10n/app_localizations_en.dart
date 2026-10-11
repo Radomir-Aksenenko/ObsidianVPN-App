@@ -873,4 +873,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get trayQuit => 'Quit';
+
+  @override
+  String get settingsCheckUpdates => 'Check for updates';
+
+  @override
+  String get settingsCheckUpdatesNow => 'Check for updates now';
+
+  @override
+  String get updateStatusChecking => 'Checking...';
+
+  @override
+  String get updateStatusUpToDate => 'You have the latest version';
+
+  @override
+  String updateStatusAvailable(String version) {
+    return '$version is available';
+  }
+
+  @override
+  String get updateStatusFailed => 'Could not check';
+
+  @override
+  String updateSheetTitle(String version) {
+    return 'Version $version is available';
+  }
+
+  @override
+  String updateSheetCurrent(String current) {
+    return 'You have $current installed';
+  }
+
+  @override
+  String get updateNotesTitle => 'What\'s new';
+
+  @override
+  String get updateDownload => 'Download';
+
+  @override
+  String get updateLater => 'Later';
+
+  @override
+  String get updateSkip => 'Skip this version';
+
+  @override
+  String get updateReleaseNotesLink => 'What\'s new on GitHub';
+
+  @override
+  String get updateDownloadStarted => 'Download started in the browser';
 }

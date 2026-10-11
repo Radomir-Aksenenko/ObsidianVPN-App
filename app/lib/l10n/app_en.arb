@@ -359,5 +359,40 @@
   "trayOpen": "Open",
   "trayConnect": "Connect",
   "trayDisconnect": "Disconnect",
-  "trayQuit": "Quit"
+  "trayQuit": "Quit",
+  "settingsCheckUpdates": "Check for updates",
+  "settingsCheckUpdatesNow": "Check for updates now",
+  "updateStatusChecking": "Checking...",
+  "updateStatusUpToDate": "You have the latest version",
+  "updateStatusAvailable": "{version} is available",
+  "@updateStatusAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateStatusFailed": "Could not check",
+  "updateSheetTitle": "Version {version} is available",
+  "@updateSheetTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSheetCurrent": "You have {current} installed",
+  "@updateSheetCurrent": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      }
+    }
+  },
+  "updateNotesTitle": "What's new",
+  "updateDownload": "Download",
+  "updateLater": "Later",
+  "updateSkip": "Skip this version",
+  "updateReleaseNotesLink": "What's new on GitHub",
+  "updateDownloadStarted": "Download started in the browser"
 }

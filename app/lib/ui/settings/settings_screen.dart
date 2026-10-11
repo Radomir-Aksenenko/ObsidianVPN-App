@@ -2,21 +2,18 @@ import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import 'package:flutter/material.dart' hide Durations;
 import 'package:flutter/services.dart';
 
+import '../../app_version.dart';
 import '../../core/models/profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../platform_info.dart';
 import '../../state/app_state.dart';
+import '../../state/update_controller.dart';
 import '../../theme/theme.dart';
 import '../../vpn/channel_backend.dart';
 import '../../vpn/vpn_backend.dart';
+import '../update/update_sheet.dart';
 import '../widgets/widgets.dart';
 import 'logs_screen.dart';
-
-/// App version shown in About. Override at build time with `--dart-define=APP_VERSION=...`.
-const String _appVersion = String.fromEnvironment(
-  'APP_VERSION',
-  defaultValue: '2.0.0',
-);
 
 /// Device id as shown to the user: the first 12 hex digits in groups of four
 /// (`A1B2-C3D4-E5F6`). The full id is what gets copied.
@@ -42,6 +39,7 @@ class SettingsScreen extends StatelessWidget {
     final settings = state.settings;
     final l10n = AppLocalizations.of(context);
     final c = context.obs.colors;
+    final updates = UpdateScope.maybeOf(context);
 
     Future<void> save(AppSettings next) => _save(context, next);
 
@@ -175,10 +173,18 @@ class SettingsScreen extends StatelessWidget {
             ObsRow(
               title: l10n.settingsVersion,
               trailing: Text(
-                _appVersion,
+                kAppVersion,
                 style: context.obs.mono.copyWith(color: c.textDim),
               ),
             ),
+            if (updates != null) ...[
+              _SwitchRow(
+                title: l10n.settingsCheckUpdates,
+                value: settings.checkUpdates,
+                onChanged: (v) => _setCheckUpdates(context, updates, v),
+              ),
+              _UpdateCheckRow(controller: updates),
+            ],
             _InfoRow(l10n.settingsProtocol),
           ],
         ),
@@ -196,6 +202,17 @@ class SettingsScreen extends StatelessWidget {
         showObsToast(context, e.messageRu, kind: ObsToastKind.error);
       }
     }
+  }
+
+  /// Saves the switch. Turning it on starts the automatic checks at once.
+  static Future<void> _setCheckUpdates(
+    BuildContext context,
+    UpdateController updates,
+    bool on,
+  ) async {
+    final state = AppState.of(context);
+    await _save(context, state.settings.copyWith(checkUpdates: on));
+    if (on) updates.start();
   }
 
   static Future<void> _openVpnSettings(BuildContext context) async {
@@ -279,6 +296,60 @@ class _SwitchRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "Проверить обновления": shows the check state. Tapping runs a check, or
+/// opens the update sheet when a newer release is already known.
+class _UpdateCheckRow extends StatelessWidget {
+  const _UpdateCheckRow({required this.controller});
+
+  final UpdateController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final c = context.obs.colors;
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final release = controller.available;
+        final String? status;
+        if (controller.checking) {
+          status = l10n.updateStatusChecking;
+        } else if (release != null) {
+          status = l10n.updateStatusAvailable(release.version);
+        } else if (controller.lastCheckFailed) {
+          status = l10n.updateStatusFailed;
+        } else if (controller.lastCheckedAt != null) {
+          status = l10n.updateStatusUpToDate;
+        } else {
+          status = null;
+        }
+        return ObsRow(
+          title: l10n.settingsCheckUpdatesNow,
+          subtitle: status,
+          trailing: controller.checking
+              ? SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: c.textDim,
+                  ),
+                )
+              : null,
+          onTap: controller.checking
+              ? null
+              : () {
+                  if (release != null) {
+                    showUpdateSheet(context, release);
+                  } else {
+                    controller.checkNow();
+                  }
+                },
+        );
+      },
     );
   }
 }

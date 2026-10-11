@@ -874,4 +874,52 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get trayQuit => 'Выйти';
+
+  @override
+  String get settingsCheckUpdates => 'Проверять обновления';
+
+  @override
+  String get settingsCheckUpdatesNow => 'Проверить обновления';
+
+  @override
+  String get updateStatusChecking => 'Проверяю...';
+
+  @override
+  String get updateStatusUpToDate => 'Установлена последняя версия';
+
+  @override
+  String updateStatusAvailable(String version) {
+    return 'Доступна $version';
+  }
+
+  @override
+  String get updateStatusFailed => 'Не удалось проверить';
+
+  @override
+  String updateSheetTitle(String version) {
+    return 'Вышла версия $version';
+  }
+
+  @override
+  String updateSheetCurrent(String current) {
+    return 'Сейчас установлена $current';
+  }
+
+  @override
+  String get updateNotesTitle => 'Что изменилось';
+
+  @override
+  String get updateDownload => 'Скачать';
+
+  @override
+  String get updateLater => 'Позже';
+
+  @override
+  String get updateSkip => 'Пропустить эту версию';
+
+  @override
+  String get updateReleaseNotesLink => 'Что нового на GitHub';
+
+  @override
+  String get updateDownloadStarted => 'Загрузка начата в браузере';
 }

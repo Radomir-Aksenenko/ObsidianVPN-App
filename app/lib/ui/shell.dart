@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app_version.dart';
+import '../core/update/update_checker.dart';
 import '../l10n/app_localizations.dart';
 import '../platform_info.dart';
+import '../state/app_state.dart';
+import '../state/update_controller.dart';
 import '../theme/theme.dart';
 import 'home/home_screen.dart';
 import 'servers/servers_screen.dart';
 import 'settings/settings_screen.dart';
+import 'update/update_sheet.dart';
 import 'vps/access_screen.dart';
 import 'widgets/desktop_title_bar.dart';
 
@@ -55,6 +60,8 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _index = 0;
+  UpdateController? _updates;
+  bool _updateSheetOpen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -151,13 +158,51 @@ class _ShellState extends State<Shell> {
           ),
         );
 
-        return ShellNav(
-          tab: ShellTab.values[_index],
-          goTo: (tab) => select(tab.index),
-          child: scaffold,
+        return UpdateScope(
+          controller: _updates,
+          child: ShellNav(
+            tab: ShellTab.values[_index],
+            goTo: (tab) => select(tab.index),
+            child: scaffold,
+          ),
         );
       },
     );
+  }
+
+  /// Creates the update controller once, on desktop only. Its first check runs
+  /// a few seconds after the app opens.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_updates != null || !isDesktop) return;
+    final state = AppState.of(context);
+    final updates = UpdateController(
+      checker: UpdateChecker(currentVersion: kAppVersion),
+      readSettings: () => state.settings,
+    )..addListener(_onUpdatesChanged);
+    _updates = updates;
+    updates.start();
+  }
+
+  /// Shows the update sheet when a check queued a prompt.
+  void _onUpdatesChanged() {
+    final release = _updates?.takePrompt();
+    if (release == null || _updateSheetOpen || !mounted) return;
+    _updateSheetOpen = true;
+    showUpdateSheet(context, release).whenComplete(() {
+      _updateSheetOpen = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    final updates = _updates;
+    if (updates != null) {
+      updates.removeListener(_onUpdatesChanged);
+      updates.dispose();
+    }
+    super.dispose();
   }
 }
 

@@ -1711,6 +1711,90 @@ abstract class AppLocalizations {
   /// In ru, this message translates to:
   /// **'Выйти'**
   String get trayQuit;
+
+  /// No description provided for @settingsCheckUpdates.
+  ///
+  /// In ru, this message translates to:
+  /// **'Проверять обновления'**
+  String get settingsCheckUpdates;
+
+  /// No description provided for @settingsCheckUpdatesNow.
+  ///
+  /// In ru, this message translates to:
+  /// **'Проверить обновления'**
+  String get settingsCheckUpdatesNow;
+
+  /// No description provided for @updateStatusChecking.
+  ///
+  /// In ru, this message translates to:
+  /// **'Проверяю...'**
+  String get updateStatusChecking;
+
+  /// No description provided for @updateStatusUpToDate.
+  ///
+  /// In ru, this message translates to:
+  /// **'Установлена последняя версия'**
+  String get updateStatusUpToDate;
+
+  /// No description provided for @updateStatusAvailable.
+  ///
+  /// In ru, this message translates to:
+  /// **'Доступна {version}'**
+  String updateStatusAvailable(String version);
+
+  /// No description provided for @updateStatusFailed.
+  ///
+  /// In ru, this message translates to:
+  /// **'Не удалось проверить'**
+  String get updateStatusFailed;
+
+  /// No description provided for @updateSheetTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Вышла версия {version}'**
+  String updateSheetTitle(String version);
+
+  /// No description provided for @updateSheetCurrent.
+  ///
+  /// In ru, this message translates to:
+  /// **'Сейчас установлена {current}'**
+  String updateSheetCurrent(String current);
+
+  /// No description provided for @updateNotesTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Что изменилось'**
+  String get updateNotesTitle;
+
+  /// No description provided for @updateDownload.
+  ///
+  /// In ru, this message translates to:
+  /// **'Скачать'**
+  String get updateDownload;
+
+  /// No description provided for @updateLater.
+  ///
+  /// In ru, this message translates to:
+  /// **'Позже'**
+  String get updateLater;
+
+  /// No description provided for @updateSkip.
+  ///
+  /// In ru, this message translates to:
+  /// **'Пропустить эту версию'**
+  String get updateSkip;
+
+  /// No description provided for @updateReleaseNotesLink.
+  ///
+  /// In ru, this message translates to:
+  /// **'Что нового на GitHub'**
+  String get updateReleaseNotesLink;
+
+  /// No description provided for @updateDownloadStarted.
+  ///
+  /// In ru, this message translates to:
+  /// **'Загрузка начата в браузере'**
+  String get updateDownloadStarted;
 }
 
 class _AppLocalizationsDelegate

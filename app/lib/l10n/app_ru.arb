@@ -380,5 +380,40 @@
   "trayOpen": "Открыть",
   "trayConnect": "Подключить",
   "trayDisconnect": "Отключить",
-  "trayQuit": "Выйти"
+  "trayQuit": "Выйти",
+  "settingsCheckUpdates": "Проверять обновления",
+  "settingsCheckUpdatesNow": "Проверить обновления",
+  "updateStatusChecking": "Проверяю...",
+  "updateStatusUpToDate": "Установлена последняя версия",
+  "updateStatusAvailable": "Доступна {version}",
+  "@updateStatusAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateStatusFailed": "Не удалось проверить",
+  "updateSheetTitle": "Вышла версия {version}",
+  "@updateSheetTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSheetCurrent": "Сейчас установлена {current}",
+  "@updateSheetCurrent": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      }
+    }
+  },
+  "updateNotesTitle": "Что изменилось",
+  "updateDownload": "Скачать",
+  "updateLater": "Позже",
+  "updateSkip": "Пропустить эту версию",
+  "updateReleaseNotesLink": "Что нового на GitHub",
+  "updateDownloadStarted": "Загрузка начата в браузере"
 }

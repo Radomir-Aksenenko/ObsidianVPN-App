@@ -152,7 +152,11 @@ final class ServerProfile {
     final id = _string(json['id']);
     final host = _string(json['host']);
     final port = _int(json['port']);
-    if (id.isEmpty || host.isEmpty || port == null || port < 1 || port > 65535) {
+    if (id.isEmpty ||
+        host.isEmpty ||
+        port == null ||
+        port < 1 ||
+        port > 65535) {
       throw const FormatException('profile: id, host or port is invalid');
     }
     final vpsJson = json['vps'];
@@ -204,7 +208,8 @@ String guessCountryCode(String name) {
 }
 
 bool _matchesKeyword(String lowerName, String needle) {
-  final isShortLatin = needle.length < 4 && RegExp(r'^[a-z ]+$').hasMatch(needle);
+  final isShortLatin =
+      needle.length < 4 && RegExp(r'^[a-z ]+$').hasMatch(needle);
   if (!isShortLatin) return lowerName.contains(needle);
   final pattern = RegExp('(^|[^a-z0-9])${RegExp.escape(needle)}(\$|[^a-z0-9])');
   return pattern.hasMatch(lowerName);
@@ -215,7 +220,17 @@ bool _matchesKeyword(String lowerName, String needle) {
 /// Helsinki, Moscow).
 const List<(List<String>, String)> _countryTable = <(List<String>, String)>[
   (['helsinki', 'finland', 'хельсинки', 'финлянд', 'suomi'], 'FI'),
-  (['amsterdam', 'netherlands', 'nether', 'амстердам', 'нидерланд', 'голланди'], 'NL'),
+  (
+    [
+      'amsterdam',
+      'netherlands',
+      'nether',
+      'амстердам',
+      'нидерланд',
+      'голланди',
+    ],
+    'NL',
+  ),
   (['frankfurt', 'germany', 'франкфурт', 'германи', 'deutschland'], 'DE'),
   (['stockholm', 'sweden', 'стокгольм', 'швец'], 'SE'),
   (['warsaw', 'poland', 'варшав', 'польш'], 'PL'),
@@ -223,8 +238,22 @@ const List<(List<String>, String)> _countryTable = <(List<String>, String)>[
   (['paris', 'france', 'париж', 'франци'], 'FR'),
   (['tokyo', 'japan', 'токио', 'япони'], 'JP'),
   (['singapore', 'сингапур'], 'SG'),
-  (['usa', 'united states', 'сша', 'нью-йорк', 'new york', 'los angeles', 'лос-анджелес'], 'US'),
-  (['russia', 'москв', 'росси', 'moscow', 'spb', 'питер', 'санкт-петербург'], 'RU'),
+  (
+    [
+      'usa',
+      'united states',
+      'сша',
+      'нью-йорк',
+      'new york',
+      'los angeles',
+      'лос-анджелес',
+    ],
+    'US',
+  ),
+  (
+    ['russia', 'москв', 'росси', 'moscow', 'spb', 'питер', 'санкт-петербург'],
+    'RU',
+  ),
   (['turkey', 'турци', 'стамбул', 'istanbul'], 'TR'),
   (['kazakhstan', 'казахстан', 'алматы', 'астана'], 'KZ'),
 ];
@@ -290,6 +319,8 @@ final class AppSettings {
     this.lastProfileId,
     this.themeMode = AppThemeMode.system,
     this.locale = AppLocalePref.system,
+    this.checkUpdates = true,
+    this.skippedUpdateVersion,
   });
 
   /// Start the desktop app at logon (`--autostart`).
@@ -316,8 +347,15 @@ final class AppSettings {
   /// Language choice.
   final AppLocalePref locale;
 
+  /// Desktop: check GitHub for a newer release at start and every few hours.
+  final bool checkUpdates;
+
+  /// Version the user chose to skip ("Пропустить эту версию"). Null when none.
+  final String? skippedUpdateVersion;
+
   /// Returns a copy with the given fields replaced. Pass [clearLastProfileId]
-  /// to set [lastProfileId] to null.
+  /// to set [lastProfileId] to null, and [clearSkippedUpdateVersion] to set
+  /// [skippedUpdateVersion] to null.
   AppSettings copyWith({
     bool? autostart,
     bool? minimizeToTray,
@@ -328,6 +366,9 @@ final class AppSettings {
     bool clearLastProfileId = false,
     AppThemeMode? themeMode,
     AppLocalePref? locale,
+    bool? checkUpdates,
+    String? skippedUpdateVersion,
+    bool clearSkippedUpdateVersion = false,
   }) {
     return AppSettings(
       autostart: autostart ?? this.autostart,
@@ -335,9 +376,15 @@ final class AppSettings {
       killSwitch: killSwitch ?? this.killSwitch,
       autoConnect: autoConnect ?? this.autoConnect,
       haptics: haptics ?? this.haptics,
-      lastProfileId: clearLastProfileId ? null : (lastProfileId ?? this.lastProfileId),
+      lastProfileId: clearLastProfileId
+          ? null
+          : (lastProfileId ?? this.lastProfileId),
       themeMode: themeMode ?? this.themeMode,
       locale: locale ?? this.locale,
+      checkUpdates: checkUpdates ?? this.checkUpdates,
+      skippedUpdateVersion: clearSkippedUpdateVersion
+          ? null
+          : (skippedUpdateVersion ?? this.skippedUpdateVersion),
     );
   }
 
@@ -351,6 +398,9 @@ final class AppSettings {
     if (lastProfileId != null) 'last_profile_id': lastProfileId,
     'theme_mode': themeMode.wire,
     'locale': locale.wire,
+    'check_updates': checkUpdates,
+    if (skippedUpdateVersion != null)
+      'skipped_update_version': skippedUpdateVersion,
   };
 
   /// Reads settings written by [toJson]. Missing or invalid fields take their defaults.
@@ -358,13 +408,19 @@ final class AppSettings {
     final last = _nonEmptyOrNull(json['last_profile_id']);
     return AppSettings(
       autostart: json['autostart'] == true,
-      minimizeToTray: json['minimize_to_tray'] is bool ? json['minimize_to_tray'] as bool : true,
+      minimizeToTray: json['minimize_to_tray'] is bool
+          ? json['minimize_to_tray'] as bool
+          : true,
       killSwitch: json['kill_switch'] == true,
       autoConnect: json['auto_connect'] == true,
       haptics: json['haptics'] is bool ? json['haptics'] as bool : true,
       lastProfileId: last,
       themeMode: AppThemeMode.fromWire(json['theme_mode']),
       locale: AppLocalePref.fromWire(json['locale']),
+      checkUpdates: json['check_updates'] is bool
+          ? json['check_updates'] as bool
+          : true,
+      skippedUpdateVersion: _nonEmptyOrNull(json['skipped_update_version']),
     );
   }
 }
