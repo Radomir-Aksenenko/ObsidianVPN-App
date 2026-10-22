@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import Network
 import Darwin
 import Security
 
@@ -22,6 +23,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var totalRxBytes: Int64 = 0
     private var stage = 0
     private var engineStatus = ""
+    // true, когда startTunnel уже ответил системе. До этого reasserting не трогаем.
+    private var tunnelReady = false
+
+    // Смена сети (Wi-Fi <-> мобильная). Всё, кроме pathMonitor-колбэка, тоже живёт на pathQueue.
+    private let pathQueue = DispatchQueue(label: "com.obsidian.vpn.path-monitor")
+    private var pathMonitor: NWPathMonitor?
+    private var lastPathSignature: String?
+    private var pathDebounce: DispatchWorkItem?
+    private static let pathDebounceDelay: TimeInterval = 0.5
 
     // Раздельное туннелирование. Все изменения маршрутов идут через routeQueue.
     private let routeQueue = DispatchQueue(label: "com.obsidian.vpn.split-routes")
@@ -85,6 +95,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         totalRxBytes = 0
         stage = 1
         engineStatus = "connecting"
+        tunnelReady = false
         stateLock.unlock()
 
         let sharedDefaults = UserDefaults(suiteName: appGroupID) ?? .standard
@@ -147,7 +158,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.readFromSystem()
                 self.readFromEngine()
                 self.routeQueue.async { self.scheduleSplitRefresh() }
+                self.startPathMonitor()
                 tunnelLog("Ядро Obsidian запущено")
+                self.stateLock.lock()
+                self.tunnelReady = true
+                self.stateLock.unlock()
                 completionHandler(nil)
             } catch {
                 self.fail(error, completionHandler, prefix: "Ошибка ядра: ")
@@ -169,8 +184,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         stateLock.lock()
         engineStatus = value
         if value == "connected" { stage = 4 }
+        let ready = tunnelReady
         stateLock.unlock()
         tunnelLog("Ядро: \(value)")
+
+        // Пока ядро переподключается, система должна видеть туннель как неработающий (статус reasserting).
+        if ready {
+            if value == "reconnecting" {
+                reasserting = true
+            } else if value == "connected" {
+                reasserting = false
+            }
+        }
 
         if value == "disconnected" && isRunning {
             // Сессия Go завершилась сама (без stopTunnel): туннель без ядра только глотает трафик.
@@ -181,6 +206,73 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             defaults.set(msg, forKey: "lastTunnelError")
             cancelTunnelWithError(TunnelProviderError.engine(msg))
         }
+    }
+
+    // MARK: - Network changes
+
+    /// Следит за сменой сети. Без этого соединение с сервером остаётся привязанным к старой сети
+    /// и ядро замечает обрыв только по таймауту сокета, то есть через минуты.
+    private func startPathMonitor() {
+        pathQueue.async { [weak self] in
+            guard let self else { return }
+            self.pathMonitor?.cancel()
+            self.lastPathSignature = nil
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { [weak self] path in
+                self?.handlePathUpdate(path)
+            }
+            monitor.start(queue: self.pathQueue)
+            self.pathMonitor = monitor
+        }
+    }
+
+    private func stopPathMonitor() {
+        pathQueue.async { [weak self] in
+            guard let self else { return }
+            self.pathDebounce?.cancel()
+            self.pathDebounce = nil
+            self.pathMonitor?.cancel()
+            self.pathMonitor = nil
+            self.lastPathSignature = nil
+        }
+    }
+
+    /// Только физические интерфейсы в порядке предпочтения системы. Сам туннель (utun) имеет тип other и не учитывается,
+    /// поэтому смена сетевых настроек туннеля не считается сменой сети.
+    static func pathSignature(_ path: NWPath) -> String {
+        guard path.status == .satisfied else { return "none" }
+        let kinds: [String] = path.availableInterfaces.compactMap { interface in
+            switch interface.type {
+            case .wifi: return "wifi"
+            case .cellular: return "cellular"
+            case .wiredEthernet: return "wired"
+            default: return nil
+            }
+        }
+        return kinds.isEmpty ? "none" : kinds.joined(separator: ",")
+    }
+
+    /// Вызывается на pathQueue.
+    private func handlePathUpdate(_ path: NWPath) {
+        let signature = Self.pathSignature(path)
+        let previous = lastPathSignature
+        lastPathSignature = signature
+
+        // Первое обновление после запуска только запоминает текущую сеть.
+        guard let previous, previous != signature else { return }
+        tunnelLog("Сеть изменилась: \(previous) -> \(signature)")
+
+        // Сети нет: переподключаться некуда. Ядро продолжит попытки само, а при появлении сети придёт новое обновление.
+        guard signature != "none" else { return }
+
+        pathDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isRunning else { return }
+            tunnelLog("Переподключение после смены сети")
+            self.engine.networkChanged()
+        }
+        pathDebounce = work
+        pathQueue.asyncAfter(deadline: .now() + Self.pathDebounceDelay, execute: work)
     }
 
     // MARK: - Split tunneling
@@ -359,6 +451,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         isRunning = false
+        stopPathMonitor()
         routeQueue.async { [weak self] in
             guard let self else { return }
             self.splitRefreshTimer?.cancel()
@@ -590,6 +683,15 @@ private final class ObsidianPacketEngine {
         return packet
         #else
         return Data()
+        #endif
+    }
+
+    /// Сообщает ядру о смене сети: оно сразу рвёт старое соединение и подключается заново.
+    func networkChanged() {
+        #if canImport(Obsidian)
+        guard let sessionID else { return }
+        var error: NSError?
+        _ = MobileNetworkChanged(sessionID, &error)
         #endif
     }
 

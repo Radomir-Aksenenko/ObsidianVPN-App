@@ -67,6 +67,17 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
             if self.statsWanted, self.isTunnelUp { self.startStatsTimer() }
             if self.manager?.connection.status == .connecting { self.startStagePoll() }
         })
+        // Пока приложение было в фоне, уведомления о статусе могли не дойти (туннель включили в Настройках,
+        // он переподключился или его остановила система). При возврате сверяемся с системой.
+        lifecycleObservers.append(center.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.syncFromSystem()
+        })
+
+        // Без этого после перезапуска приложения менеджер не загружен, и UI показывает «выключено»
+        // при уже работающем туннеле, пока пользователь не нажмёт кнопку.
+        syncFromSystem()
     }
 
     deinit {
@@ -80,7 +91,10 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
 
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         sink = events
-        events(statusMap(for: manager?.connection.status ?? .invalid, phaseOverride: nil, error: nil))
+        // Менеджер ещё грузится: статус придёт из attach(). Ответ «отключено» сейчас был бы неверным при работающем туннеле.
+        if let manager {
+            events(statusMap(for: manager.connection.status, phaseOverride: nil, error: nil))
+        }
         return nil
     }
 
@@ -106,7 +120,7 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
             setStatsActive(active)
             result(nil)
         case "currentStatus":
-            loadManager(create: false) { [weak self] _, _ in
+            loadManager(create: false, reload: true) { [weak self] _, _ in
                 guard let self else {
                     result(nil)
                     return
@@ -119,7 +133,8 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
     }
 
     private func prepare(_ result: @escaping FlutterResult) {
-        loadManager(create: true) { [weak self] mgr, _ in
+        // Всегда читаем настройки заново: пока приложение жило, другой VPN мог отключить наш профиль в системе.
+        loadManager(create: true, reload: true) { [weak self] mgr, _ in
             guard let self, let mgr else {
                 result(false)
                 return
@@ -141,61 +156,116 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         }
     }
 
+    private struct ConnectRequest {
+        let configJson: String
+        let profileId: String
+        let name: String
+        let serverHost: String
+        let killSwitch: Bool
+    }
+
     private func connect(_ args: [String: Any]?, _ result: @escaping FlutterResult) {
         guard let args, let configJson = args["configJson"] as? String, !configJson.isEmpty else {
             result(FlutterError(code: "bad_args", message: "Не передана конфигурация (configJson).", details: nil))
             return
         }
-        let profileId = args["profileId"] as? String ?? ""
-        let name = args["name"] as? String ?? "Obsidian"
-        let serverHost = args["serverHost"] as? String ?? ""
-        let killSwitch = args["killSwitch"] as? Bool ?? false
+        let request = ConnectRequest(
+            configJson: configJson,
+            profileId: args["profileId"] as? String ?? "",
+            name: args["name"] as? String ?? "Obsidian",
+            serverHost: args["serverHost"] as? String ?? "",
+            killSwitch: args["killSwitch"] as? Bool ?? false
+        )
+        startTunnel(request, attempt: 0, result)
+    }
 
-        loadManager(create: true) { [weak self] mgr, error in
+    /// Профиль нужно перечитать из системы перед каждым запуском. Кэшированный объект устаревает, когда
+    /// включают другой VPN: система меняет нашу конфигурацию (isEnabled), и saveToPreferences на старом объекте
+    /// падает с configurationStale. Тогда подключение не стартовало бы, пока приложение не перезапустят.
+    private func startTunnel(_ request: ConnectRequest, attempt: Int, _ result: @escaping FlutterResult) {
+        loadManager(create: true, reload: true) { [weak self] mgr, error in
             guard let self, let mgr else {
                 result(FlutterError(code: "load_failed", message: error?.localizedDescription ?? "Не удалось загрузить настройки VPN.", details: nil))
                 return
             }
-            let status = mgr.connection.status
-            if status == .connected || status == .connecting || status == .reasserting {
-                result(FlutterError(code: "busy", message: "VPN уже запущен.", details: nil))
-                return
-            }
-
-            // The client private key lives only in the Keychain; the profile keeps a reference to it.
-            guard let passwordReference = self.storeConfig(configJson, profileId: profileId) else {
-                result(FlutterError(code: "keychain_failed", message: "Не удалось сохранить конфигурацию в Keychain.", details: nil))
-                return
-            }
-            mgr.protocolConfiguration = self.makeProtocol(
-                serverAddress: serverHost.isEmpty ? "obsidian" : serverHost,
-                providerConfiguration: ["profileId": profileId, "name": name],
-                passwordReference: passwordReference,
-                killSwitch: killSwitch
-            )
-            mgr.localizedDescription = "Obsidian"
-            mgr.isEnabled = true
-
-            self.defaults.removeObject(forKey: VpnChannel.errorKey)
-            self.userStopped = false
-            self.reachedConnected = false
-            self.engineReconnecting = false
-            self.lastStage = 1
-
-            self.save(mgr) { saveError in
-                if let saveError {
-                    result(self.flutterError(for: saveError, fallback: "save_failed"))
+            // Туннель уже работает (например, UI отстал от системы или выбран другой сервер): перезапускаем с выбранным профилем.
+            self.stopIfActive(mgr) {
+                // The client private key lives only in the Keychain; the profile keeps a reference to it.
+                guard let passwordReference = self.storeConfig(request.configJson, profileId: request.profileId) else {
+                    result(FlutterError(code: "keychain_failed", message: "Не удалось сохранить конфигурацию в Keychain.", details: nil))
                     return
                 }
-                do {
-                    let options: [String: NSObject] = ["configJson": configJson as NSString]
-                    try (mgr.connection as? NETunnelProviderSession)?.startVPNTunnel(options: options)
-                    result(nil)
-                } catch {
-                    result(FlutterError(code: "start_failed", message: error.localizedDescription, details: nil))
+                mgr.protocolConfiguration = self.makeProtocol(
+                    serverAddress: request.serverHost.isEmpty ? "obsidian" : request.serverHost,
+                    providerConfiguration: ["profileId": request.profileId, "name": request.name],
+                    passwordReference: passwordReference,
+                    killSwitch: request.killSwitch
+                )
+                mgr.localizedDescription = "Obsidian"
+                // Включение нашей конфигурации выключает остальные VPN в системе, то есть переключает активный VPN.
+                mgr.isEnabled = true
+
+                self.defaults.removeObject(forKey: VpnChannel.errorKey)
+                self.userStopped = false
+                self.reachedConnected = false
+                self.engineReconnecting = false
+                self.lastStage = 1
+
+                self.save(mgr) { saveError in
+                    if let saveError {
+                        if attempt == 0, Self.isStale(saveError) {
+                            self.startTunnel(request, attempt: 1, result)
+                        } else {
+                            result(self.flutterError(for: saveError, fallback: "save_failed"))
+                        }
+                        return
+                    }
+                    do {
+                        let options: [String: NSObject] = ["configJson": request.configJson as NSString]
+                        try (mgr.connection as? NETunnelProviderSession)?.startVPNTunnel(options: options)
+                        result(nil)
+                    } catch {
+                        if attempt == 0, Self.isStale(error) {
+                            self.startTunnel(request, attempt: 1, result)
+                        } else {
+                            result(FlutterError(code: "start_failed", message: error.localizedDescription, details: nil))
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private static func isStale(_ error: Error) -> Bool {
+        let ns = error as NSError
+        return ns.domain == NEVPNErrorDomain && ns.code == NEVPNError.Code.configurationStale.rawValue
+    }
+
+    /// Останавливает работающий туннель и ждёт состояния «отключено» (не дольше 5 с).
+    private func stopIfActive(_ mgr: NETunnelProviderManager, completion: @escaping () -> Void) {
+        let current = mgr.connection.status
+        if current == .disconnected || current == .invalid {
+            completion()
+            return
+        }
+        // Остановка внутренняя: не показываем её как ошибку.
+        userStopped = true
+        var finished = false
+        var observer: NSObjectProtocol?
+        let finish = {
+            guard !finished else { return }
+            finished = true
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            completion()
+        }
+        observer = NotificationCenter.default.addObserver(
+            forName: .NEVPNStatusDidChange, object: mgr.connection, queue: .main
+        ) { _ in
+            let status = mgr.connection.status
+            if status == .disconnected || status == .invalid { finish() }
+        }
+        if current != .disconnecting { mgr.connection.stopVPNTunnel() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { finish() }
     }
 
     private func disconnect(_ result: @escaping FlutterResult) {
@@ -213,10 +283,16 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
             result(FlutterError(code: "bad_args", message: "Не передана конфигурация (configJson).", details: nil))
             return
         }
-        loadManager(create: false) { mgr, _ in
-            guard let mgr, let session = mgr.connection as? NETunnelProviderSession else {
+        loadManager(create: false) { [weak self] mgr, _ in
+            guard let self, let mgr, let session = mgr.connection as? NETunnelProviderSession else {
                 result(nil)
                 return
+            }
+            // Запуск из Настроек или по On Demand идёт без опций и читает конфигурацию из Keychain:
+            // новые правила должны попасть и туда, иначе после следующего запуска вернутся старые.
+            if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol,
+               let profileId = proto.providerConfiguration?["profileId"] as? String, !profileId.isEmpty {
+                _ = self.storeConfig(configJson, profileId: profileId)
             }
             let status = session.status
             guard status == .connected || status == .reasserting else {
@@ -301,8 +377,9 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
     private var isLoadingManagers = false
 
     /// Параллельные вызовы делят один loadAllFromPreferences. Иначе два вызова подряд создали бы два профиля.
-    private func loadManager(create: Bool, completion: @escaping ManagerCompletion) {
-        if let manager {
+    /// reload читает настройки из системы заново, даже если менеджер уже загружен.
+    private func loadManager(create: Bool, reload: Bool = false, completion: @escaping ManagerCompletion) {
+        if !reload, let manager {
             completion(manager, nil)
             return
         }
@@ -328,6 +405,8 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
                     for waiter in waiters { waiter.completion(found, nil) }
                     return
                 }
+                // Профиль удалили в системе: старый объект больше нельзя сохранять.
+                if self.manager != nil { self.detach() }
                 var fresh: NETunnelProviderManager?
                 for waiter in waiters {
                     if waiter.create {
@@ -345,6 +424,13 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
         }
     }
 
+    /// Сверяет статус с системой. Нужен при запуске и при возврате в приложение.
+    private func syncFromSystem() {
+        loadManager(create: false, reload: true) { [weak self] _, _ in
+            self?.handleStatusChange()
+        }
+    }
+
     /// Сохраняет настройки и перечитывает их (без перечитывания startVPNTunnel может упасть на новом профиле).
     private func save(_ mgr: NETunnelProviderManager, completion: @escaping (Error?) -> Void) {
         mgr.saveToPreferences { error in
@@ -356,6 +442,16 @@ final class VpnChannel: NSObject, FlutterStreamHandler {
                 DispatchQueue.main.async { completion(loadError) }
             }
         }
+    }
+
+    private func detach() {
+        manager = nil
+        if let statusObserver { NotificationCenter.default.removeObserver(statusObserver) }
+        statusObserver = nil
+        stopStagePoll()
+        stopStatsTimer()
+        lastPhase = ""
+        sink?(statusMap(for: .invalid, phaseOverride: nil, error: nil))
     }
 
     private func attach(_ mgr: NETunnelProviderManager) {
