@@ -239,7 +239,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// Только физические интерфейсы в порядке предпочтения системы. Сам туннель (utun) имеет тип other и не учитывается,
     /// поэтому смена сетевых настроек туннеля не считается сменой сети.
-    static func pathSignature(_ path: NWPath) -> String {
+    static func pathSignature(_ path: Network.NWPath) -> String {
         guard path.status == .satisfied else { return "none" }
         let kinds: [String] = path.availableInterfaces.compactMap { interface in
             switch interface.type {
@@ -253,7 +253,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     /// Вызывается на pathQueue.
-    private func handlePathUpdate(_ path: NWPath) {
+    private func handlePathUpdate(_ path: Network.NWPath) {
         let signature = Self.pathSignature(path)
         let previous = lastPathSignature
         lastPathSignature = signature
