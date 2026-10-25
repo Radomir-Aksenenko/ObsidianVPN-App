@@ -159,6 +159,21 @@ class _DeployWizardScreenState extends State<DeployWizardScreen> {
   Widget _donePage(AppLocalizations l) {
     final c = context.obs.colors;
     final token = _result?.adminToken ?? '';
+    final adopted = _result?.adopted ?? false;
+    if (adopted) {
+      return VpsPage(
+        title: l.vpsSuccessTitle,
+        children: [
+          Text(l.vpsAdoptedText, style: vpsBodyDim(context)),
+          if (token.isEmpty) ...[
+            const SizedBox(height: Space.s12),
+            Text(l.vpsAdoptedNoToken, style: vpsBodyDim(context)),
+          ],
+          const SizedBox(height: Space.s24),
+          ObsButton(label: l.vpsDone, onPressed: () => Navigator.of(context).pop()),
+        ],
+      );
+    }
     return VpsPage(
       title: l.vpsSuccessTitle,
       children: [

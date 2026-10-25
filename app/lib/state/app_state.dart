@@ -526,10 +526,13 @@ class AppState extends ChangeNotifier {
       SecretKeys.profile(id, SecretKeys.rawKey),
       result.ownerKey,
     );
-    await secrets.write(
-      SecretKeys.profile(id, SecretKeys.adminToken),
-      result.adminToken,
-    );
+    // An attached server may have no recoverable token: keep a stored one then.
+    if (result.adminToken.isNotEmpty) {
+      await secrets.write(
+        SecretKeys.profile(id, SecretKeys.adminToken),
+        result.adminToken,
+      );
+    }
     await _writeOrDelete(id, SecretKeys.vpsPassword, creds.password);
     await _writeOrDelete(id, SecretKeys.vpsPrivateKeyPem, creds.privateKeyPem);
     await _writeOrDelete(id, SecretKeys.vpsPassphrase, creds.passphrase);

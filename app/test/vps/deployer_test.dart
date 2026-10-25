@@ -56,6 +56,18 @@ class _FakeSession implements SshSession {
   String _answer(String cmd) {
     if (cmd == kUidCmd) return uid;
     if (cmd == kUnameCmd) return 'x86_64';
+    if (cmd == kReadConfigCmd) {
+      return jsonEncode({
+        'port': '8443',
+        'udp_port': 8444,
+        'server_public_key': 'AB' * 32,
+        'reality_auth_key': 'cd' * 32,
+        'reality_backend_sni': 'www.example.com',
+        'enable_ipv6': false,
+      });
+    }
+    if (cmd == kKeyserverEnvCmd) return 'PATH=/usr/bin\nADMIN_TOKEN=tok123\n';
+    if (cmd == kReadVersionFileCmd) return '1.0.0\nabc\n';
     if (cmd == kInstallExistsCmd) return installed ? 'OK' : 'MISSING';
     if (cmd == kServerDirExistsCmd) return dirExists ? 'EXISTS' : 'NO';
     if (cmd == kDockerVersionCmd) return 'Docker version 26.1.0';
@@ -155,14 +167,23 @@ void main() {
     expect(logs, isNot(contains('pw')));
   });
 
-  test('an existing installation is never overwritten or removed', () async {
+  test('an existing installation is attached as owner and never changed', () async {
     final session = _FakeSession(installed: true, dirExists: true);
     final (events, error) = await _run(
       _deployer(session).deploy(const DeployRequest(creds: _creds)),
     );
-    expect(error, isA<VpsException>());
-    expect((error! as VpsException).messageRu, contains('уже установлен'));
-    expect(events.whereType<DeployFinished<Object?>>(), isEmpty);
+    expect(error, isNull);
+    final done = events.whereType<DeployFinished<DeployResult>>().single.value;
+    expect(done.adopted, isTrue);
+    expect(done.ownerKey, startsWith('OBSDN-'));
+    expect(done.ownerConfig.serverHost, '203.0.113.10');
+    expect(done.ownerConfig.serverPublicKey, 'ab' * 32);
+    expect(done.ownerConfig.realityAuthKey, 'cd' * 32);
+    expect(done.ownerConfig.realitySni, 'www.example.com');
+    expect(done.tcpPort, 8443);
+    expect(done.udpPort, 8444);
+    expect(done.adminToken, 'tok123');
+    expect(done.serverVersion, '1.0.0');
     expect(session.uploads, isEmpty);
     expect(session.commands.any((c) => c.startsWith('docker run')), isFalse);
     expect(session.commands.any((c) => c.contains('rm ')), isFalse);

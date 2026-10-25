@@ -84,6 +84,21 @@ String rollbackFilesCmd({required bool dirExisted}) => dirExisted
     : 'rm -rf $kServerDir 2>/dev/null || true';
 const String kReadVersionFileCmd = 'cat $kVersionFile 2>/dev/null || echo MISSING';
 const String kReadConfigCmd = 'cat $kServerConfig';
+
+/// Prints the environment of the keyserver container, which holds ADMIN_TOKEN.
+const String kKeyserverEnvCmd =
+    "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $kKeyserverContainer 2>/dev/null";
+
+/// The ADMIN_TOKEN line of [kKeyserverEnvCmd] output, or null when it is absent.
+String? adminTokenFromEnv(String out) {
+  for (final line in out.split('\n')) {
+    final t = line.trim();
+    if (t.startsWith('ADMIN_TOKEN=') && t.length > 'ADMIN_TOKEN='.length) {
+      return t.substring('ADMIN_TOKEN='.length);
+    }
+  }
+  return null;
+}
 const String kVpnPidsCmd = 'docker top $kVpnContainer -o pid 2>/dev/null';
 const String kBackupCmd =
     'cp -f $kServerBin $kServerBin.bak && cp -f $kServerConfig $kServerConfig.bak';

@@ -564,7 +564,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get vpsOwnerKeyMissing =>
-      'The owner key is not stored on this device. Reinstall the server to create it again.';
+      'The owner key is not stored on this device. Add the server again via \"Deploy server\": if Obsidian is already installed there, nothing is reinstalled and you just become the owner.';
+
+  @override
+  String get vpsAdoptedText =>
+      'Obsidian was already installed on this server. Nothing was changed, you were added as the owner: the owner key is in Servers and selected.';
+
+  @override
+  String get vpsAdoptedNoToken =>
+      'The keyserver token could not be found. It is only needed for outside requests to the keyserver.';
 
   @override
   String get serversTitle => 'Servers';

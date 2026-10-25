@@ -99,7 +99,11 @@ class DeployResult {
     required this.ipv6,
     required this.serverVersion,
     required this.hostKeyFingerprint,
+    this.adopted = false,
   });
+
+  /// True when the server was already installed and was only attached, not deployed.
+  final bool adopted;
 
   /// OBSDN key for the owner device (3 devices, no expiry).
   final String ownerKey;

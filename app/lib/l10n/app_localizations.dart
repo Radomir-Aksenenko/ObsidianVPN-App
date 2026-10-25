@@ -1127,8 +1127,20 @@ abstract class AppLocalizations {
   /// No description provided for @vpsOwnerKeyMissing.
   ///
   /// In ru, this message translates to:
-  /// **'Владельческий ключ не найден на этом устройстве. Переустанови сервер, чтобы создать его заново.'**
+  /// **'Владельческий ключ не найден на этом устройстве. Добавь сервер заново через «Развернуть сервер»: если Obsidian на нём уже стоит, переустановки не будет, ты просто станешь владельцем.'**
   String get vpsOwnerKeyMissing;
+
+  /// No description provided for @vpsAdoptedText.
+  ///
+  /// In ru, this message translates to:
+  /// **'Obsidian на этом сервере уже был установлен. Ничего не менял, добавил тебя как владельца: ключ владельца лежит в Серверах и выбран.'**
+  String get vpsAdoptedText;
+
+  /// No description provided for @vpsAdoptedNoToken.
+  ///
+  /// In ru, this message translates to:
+  /// **'Токен сервера ключей найти не удалось, он нужен только для внешних запросов к серверу ключей.'**
+  String get vpsAdoptedNoToken;
 
   /// No description provided for @serversTitle.
   ///

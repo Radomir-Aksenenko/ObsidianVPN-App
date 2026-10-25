@@ -136,23 +136,21 @@ class VpsDeployer {
     final creds = req.creds;
     final session = await _connect(op, creds);
     await _requireRoot(op);
+    op.progress(12, 'Проверка сервера');
+
+    // A second deploy would replace the server keys and cut off every issued key,
+    // so an installed server is attached as it is: the owner key is rebuilt from its
+    // config and nothing on it changes.
+    final installed = await op.run(kInstallExistsCmd, check: false);
+    if (installed.contains('OK')) {
+      await _adopt(op, creds, session);
+      return;
+    }
     final arch = await _detectArch(op);
     final serverBin = await _loadServerBinary(arch);
     final keyserver = await _loadKeyserver();
     if (keyserver == null) {
       throw VpsException('В приложении нет $kKeyserverAsset.');
-    }
-    op.progress(12, 'Проверка сервера');
-
-    // A second deploy would replace the server keys and cut off every issued key.
-    final installed = await op.run(kInstallExistsCmd, check: false);
-    if (installed.contains('OK')) {
-      throw const VpsException(
-        'На этом сервере уже установлен Obsidian. Повторная установка заменила бы '
-        'ключи сервера и отключила все выданные ключи. Обновите или обнулите сервер '
-        'в разделе управления. Чтобы начать с чистого листа, удалите каталог '
-        '$kServerDir на сервере вручную.',
-      );
     }
     final dirExisted =
         (await op.run(kServerDirExistsCmd, check: false)).contains('EXISTS');
@@ -266,6 +264,58 @@ class VpsDeployer {
         ipv6: ipv6,
         serverVersion: bundledVersion,
         hostKeyFingerprint: session.hostKeyFingerprint,
+      ),
+    );
+  }
+
+  /// Attaches a server that already runs Obsidian. Reads its config, rebuilds the owner
+  /// key and recovers the keyserver admin token. Changes nothing on the server.
+  Future<void> _adopt(_Op op, VpsCredentials creds, SshSession session) async {
+    op.log('На сервере уже установлен Obsidian: подключаю как владелец, без переустановки.');
+    op.progress(40, 'Чтение конфига сервера');
+    final cfg = _decodeConfig(await op.run(kReadConfigCmd, quiet: true));
+    final pub = cfg['server_public_key'];
+    if (pub is! String || pub.trim().isEmpty) {
+      throw const VpsException('В конфиге сервера нет публичного ключа.');
+    }
+    final tcp = jsonPortOf(cfg, 'port') ?? '443';
+    final udp = jsonPortOf(cfg, 'udp_port') ?? tcp;
+    final sniRaw = cfg['reality_backend_sni'];
+    final sni = sniRaw is String && sniRaw.isNotEmpty ? sniRaw : kDefaultSni;
+    final auth = cfg['reality_auth_key'];
+    final ipv6 = cfg['enable_ipv6'] == true;
+
+    op.progress(65, 'Поиск токена сервера ключей');
+    final token = adminTokenFromEnv(await op.run(kKeyserverEnvCmd, check: false, quiet: true));
+    if (token == null) {
+      op.log('Токен сервера ключей не найден: контейнер $kKeyserverContainer не запущен.');
+    }
+    final file = parseVersionFile(await op.run(kReadVersionFileCmd, check: false, quiet: true));
+
+    final owner = _ownerKeyFor(
+      _serverConfig(
+        host: creds.host.trim(),
+        tcp: tcp,
+        udp: udp,
+        serverPublicKey: pub.trim().toLowerCase(),
+        realityAuthKey: auth is String ? auth : '',
+        sni: sni,
+        ipv6: ipv6,
+      ),
+    );
+    op.progress(100, 'Готово');
+    op.finish(
+      DeployResult(
+        ownerKey: owner.key,
+        ownerConfig: owner.config,
+        adminToken: token ?? '',
+        tcpPort: int.parse(tcp),
+        udpPort: int.parse(udp),
+        sni: sni,
+        ipv6: ipv6,
+        serverVersion: file.version ?? '-',
+        hostKeyFingerprint: session.hostKeyFingerprint,
+        adopted: true,
       ),
     );
   }
