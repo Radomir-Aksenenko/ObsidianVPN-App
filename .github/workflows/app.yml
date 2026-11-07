@@ -544,6 +544,7 @@ jobs:
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
           export APPDIR="$HERE"
+          export GIO_USE_VFS=local
           export LD_LIBRARY_PATH="$HERE/usr/bin/lib:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           for hook in "$HERE"/apprun-hooks/*.sh; do
             [ -f "$hook" ] && . "$hook"

@@ -296,9 +296,10 @@ class DesktopVpnBackend implements VpnBackend {
 
     if (Platform.isLinux) {
       final id = safeProfileId(profileId);
+      final elevate = _linuxElevator();
       final proc = await Process.start(
-        'pkexec',
-        [rt.clientPath, ...args],
+        elevate.first,
+        [...elevate.skip(1), rt.clientPath, ...args],
         workingDirectory: rt.runtimePath,
         runInShell: false,
       );
@@ -308,7 +309,13 @@ class DesktopVpnBackend implements VpnBackend {
         proc,
         onLine,
         forceKill: () async {
-          await Process.run('pkexec', ['pkill', '-KILL', '-f', '$id.json']);
+          await Process.run(elevate.first, [
+            ...elevate.skip(1),
+            'pkill',
+            '-KILL',
+            '-f',
+            '$id.json',
+          ]);
         },
       );
     }
@@ -350,9 +357,9 @@ class DesktopVpnBackend implements VpnBackend {
     // Opening the FIFO for writing blocks until the client opens it for reading.
     final RandomAccessFile writer;
     try {
-      writer = await File(fifo)
-          .open(mode: FileMode.writeOnly)
-          .timeout(const Duration(seconds: 5));
+      writer = await File(
+        fifo,
+      ).open(mode: FileMode.writeOnly).timeout(const Duration(seconds: 5));
     } on TimeoutException {
       // The root client is still running and waits for stdin. Nothing else will stop
       // it, so kill it here, the same way a normal stop does, before reporting.
@@ -564,5 +571,48 @@ class _OsaRun implements _Run {
       // The log is best effort during shutdown.
     }
     _finish();
+  }
+}
+
+/// Command prefix that runs a program as root on Linux.
+///
+/// `pkexec` needs a setuid binary, which does not work inside a user namespace
+/// (appimage-run on NixOS, Flatpak and similar sandboxes): it fails with
+/// "pkexec must be setuid root". There `run0` (systemd 256+) is used instead,
+/// since it asks systemd over D-Bus and needs no setuid binary. Without `run0`
+/// the plain `pkexec` is the fallback.
+List<String> _linuxElevator() {
+  if (_inUserNamespace()) {
+    const candidates = [
+      '/run/current-system/sw/bin/run0',
+      '/usr/bin/run0',
+      '/bin/run0',
+    ];
+    for (final path in candidates) {
+      if (File(path).existsSync()) {
+        const system =
+            '/run/wrappers/bin:/run/current-system/sw/bin:'
+            '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+        final own = Platform.environment['PATH'] ?? '';
+        final pathValue = own.isEmpty ? system : '$own:$system';
+        return [path, '--setenv=PATH=$pathValue'];
+      }
+    }
+  }
+  return const ['pkexec'];
+}
+
+/// True when this process runs inside a user namespace, not the initial one.
+bool _inUserNamespace() {
+  try {
+    final parts = File(
+      '/proc/self/uid_map',
+    ).readAsStringSync().trim().split(RegExp(r'\s+'));
+    return !(parts.length == 3 &&
+        parts[0] == '0' &&
+        parts[1] == '0' &&
+        parts[2] == '4294967295');
+  } catch (_) {
+    return false;
   }
 }
