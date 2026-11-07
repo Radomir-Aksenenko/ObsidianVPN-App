@@ -396,5 +396,17 @@
   "updateLater": "Later",
   "updateSkip": "Skip this version",
   "updateReleaseNotesLink": "What's new on GitHub",
-  "updateDownloadStarted": "Download started in the browser"
+  "updateDownloadStarted": "Download started in the browser",
+  "updateOpenPage": "Open download page",
+  "updatePageOpened": "Page opened in the browser",
+  "updateOpenFailed": "Could not open the browser",
+  "updateCriticalTitle": "Important update {version}",
+  "@updateCriticalTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateCriticalBody": "This version fixes an important problem. Install it as soon as you can. The VPN keeps working for now."
 }

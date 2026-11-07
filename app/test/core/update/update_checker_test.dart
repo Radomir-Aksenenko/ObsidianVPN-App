@@ -247,6 +247,63 @@ void main() {
       expect(pickAssetForPlatform(release, 'ios'), isNull);
       expect(pickAssetForPlatform(release, ''), isNull);
     });
+
+    test('picks the Android APK for the running ABI', () {
+      final release = _release([
+        'Obsidian-2.1.0-android-arm64-v8a.apk',
+        'Obsidian-2.1.0-android-armeabi-v7a.apk',
+        'Obsidian-2.1.0-android-x86_64.apk',
+        'Obsidian-2.1.0-android.aab',
+      ]);
+
+      expect(
+        pickAssetForPlatform(release, 'android', androidAbi: 'arm64-v8a')?.name,
+        'Obsidian-2.1.0-android-arm64-v8a.apk',
+      );
+      expect(
+        pickAssetForPlatform(release, 'android', androidAbi: 'armeabi-v7a')?.name,
+        'Obsidian-2.1.0-android-armeabi-v7a.apk',
+      );
+      expect(pickAssetForPlatform(release, 'android'), isNull);
+      expect(pickAssetForPlatform(release, 'ios'), isNull);
+    });
+  });
+
+  group('minimum version marker', () {
+    AppRelease? parse(String body) => AppRelease.tryParse(<String, Object?>{
+      'tag_name': 'v2.1.0',
+      'html_url': 'https://github.com/example/app/releases/tag/v2.1.0',
+      'body': body,
+    });
+
+    test('is read, hidden from the notes and compared to the app', () {
+      final release = parse('<!-- obsidian-min-version: v2.0.5 -->\nNotes')!;
+
+      expect(release.notes, 'Notes');
+      expect(release.minVersion, '2.0.5');
+      expect(release.isCriticalFor('2.0.4'), isTrue);
+      expect(release.isCriticalFor('2.0.5'), isFalse);
+      expect(release.isCriticalFor('2.0.6'), isFalse);
+    });
+
+    test('a release without a usable marker is not critical', () {
+      expect(parse('Notes')!.isCriticalFor('0.0.1'), isFalse);
+      final bad = parse('<!-- obsidian-min-version: soon -->Notes')!;
+      expect(bad.minVersion, isNull);
+      expect(bad.isCriticalFor('0.0.1'), isFalse);
+    });
+
+    test('an unknown app version is not called critically outdated', () {
+      expect(parse('<!-- obsidian-min-version: 2.0.0 -->')!.isCriticalFor('dev'), isFalse);
+    });
+
+    test('a critical release ignores a skipped version', () {
+      final release = parse('<!-- obsidian-min-version: 2.1.0 -->')!;
+      expect(
+        shouldNotify(release, skippedVersion: '2.1.0', currentVersion: '2.0.0'),
+        isTrue,
+      );
+    });
   });
 
   group('shouldNotify', () {

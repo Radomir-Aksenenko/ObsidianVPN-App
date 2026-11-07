@@ -11,11 +11,11 @@ const Duration kFirstUpdateCheckDelay = Duration(seconds: 8);
 /// Time between automatic checks, counted from the first one.
 const Duration kUpdateCheckInterval = Duration(hours: 6);
 
-/// Update state of the desktop app: the newest release known to be newer,
-/// whether a check is running, and the one-time startup prompt.
+/// Update state of the app: the newest release known to be newer, whether a
+/// check is running, and the startup prompt.
 ///
-/// Created by the shell on desktop only. [settings] is read at each check, so
-/// a change of `checkUpdates` or `skippedUpdateVersion` applies at once.
+/// [readSettings] is called at each check, so a change of `checkUpdates` or
+/// `skippedUpdateVersion` applies at once.
 final class UpdateController extends ChangeNotifier {
   /// Creates a controller. The timers are not started until [start].
   UpdateController({
@@ -138,11 +138,13 @@ final class UpdateController extends ChangeNotifier {
   }
 
   /// An automatic check prompts once per session per version, and only when
-  /// the user has not skipped that version.
+  /// the user has not skipped that version. A critical release prompts at every
+  /// automatic check and cannot be skipped.
   bool _shouldPromptAutomatically(AppRelease release) {
     final settings = readSettings();
-    return settings.checkUpdates &&
-        release.version != _promptedVersion &&
+    if (!settings.checkUpdates) return false;
+    if (release.isCriticalFor(checker.currentVersion)) return true;
+    return release.version != _promptedVersion &&
         shouldNotify(release, skippedVersion: settings.skippedUpdateVersion);
   }
 
@@ -162,8 +164,7 @@ final class UpdateController extends ChangeNotifier {
 }
 
 /// Makes an [UpdateController] available below it. Pass a null [controller]
-/// where updates are not supported (mobile, web), so the settings rows stay
-/// hidden.
+/// where updates are not supported (web), so the settings rows stay hidden.
 class UpdateScope extends InheritedNotifier<UpdateController> {
   /// Wraps [child] and provides [controller] (or nothing when null).
   const UpdateScope({

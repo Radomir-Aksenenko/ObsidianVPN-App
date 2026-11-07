@@ -170,12 +170,12 @@ class _ShellState extends State<Shell> {
     );
   }
 
-  /// Creates the update controller once, on desktop only. Its first check runs
-  /// a few seconds after the app opens.
+  /// Creates the update controller once, on desktop and mobile. Its first check
+  /// runs a few seconds after the app opens.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_updates != null || !isDesktop) return;
+    if (_updates != null || !(isDesktop || isMobile)) return;
     final state = AppState.of(context);
     final updates = UpdateController(
       checker: UpdateChecker(currentVersion: kAppVersion),

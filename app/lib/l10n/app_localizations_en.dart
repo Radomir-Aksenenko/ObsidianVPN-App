@@ -929,4 +929,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateDownloadStarted => 'Download started in the browser';
+
+  @override
+  String get updateOpenPage => 'Open download page';
+
+  @override
+  String get updatePageOpened => 'Page opened in the browser';
+
+  @override
+  String get updateOpenFailed => 'Could not open the browser';
+
+  @override
+  String updateCriticalTitle(String version) {
+    return 'Important update $version';
+  }
+
+  @override
+  String get updateCriticalBody =>
+      'This version fixes an important problem. Install it as soon as you can. The VPN keeps working for now.';
 }

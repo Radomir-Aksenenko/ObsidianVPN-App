@@ -930,4 +930,22 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get updateDownloadStarted => 'Загрузка начата в браузере';
+
+  @override
+  String get updateOpenPage => 'Открыть страницу загрузки';
+
+  @override
+  String get updatePageOpened => 'Страница открыта в браузере';
+
+  @override
+  String get updateOpenFailed => 'Не удалось открыть браузер';
+
+  @override
+  String updateCriticalTitle(String version) {
+    return 'Важное обновление $version';
+  }
+
+  @override
+  String get updateCriticalBody =>
+      'Эта версия исправляет важную проблему. Установите её, как только сможете. VPN пока продолжит работать.';
 }

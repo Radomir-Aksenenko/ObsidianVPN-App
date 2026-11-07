@@ -61,6 +61,44 @@ void main() {
     settings = const AppSettings();
   });
 
+  test('a critical release prompts even when skipped, at every check', () async {
+    github.reply = jsonEncode(<String, Object?>{
+      'tag_name': 'v2.1.0',
+      'html_url': 'https://github.com/example/app/releases/tag/v2.1.0',
+      'body': '<!-- obsidian-min-version: 2.1.0 -->\nNotes',
+      'draft': false,
+      'prerelease': false,
+      'assets': <Object?>[],
+    });
+    settings = const AppSettings(skippedUpdateVersion: '2.1.0');
+    final controller = build(interval: const Duration(milliseconds: 40));
+
+    controller.start();
+    await _settle();
+    expect(controller.takePrompt()?.version, '2.1.0');
+
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(controller.takePrompt()?.version, '2.1.0');
+  });
+
+  test('a release above the minimum version stays skippable', () async {
+    github.reply = jsonEncode(<String, Object?>{
+      'tag_name': 'v2.1.0',
+      'html_url': 'https://github.com/example/app/releases/tag/v2.1.0',
+      'body': '<!-- obsidian-min-version: 2.0.0 -->\nNotes',
+      'draft': false,
+      'prerelease': false,
+      'assets': <Object?>[],
+    });
+    settings = const AppSettings(skippedUpdateVersion: '2.1.0');
+    final controller = build();
+
+    controller.start();
+    await _settle();
+    expect(controller.available?.version, '2.1.0');
+    expect(controller.takePrompt(), isNull);
+  });
+
   test('start does nothing when checkUpdates is off', () async {
     settings = const AppSettings(checkUpdates: false);
     final controller = build();

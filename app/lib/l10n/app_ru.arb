@@ -417,5 +417,17 @@
   "updateLater": "Позже",
   "updateSkip": "Пропустить эту версию",
   "updateReleaseNotesLink": "Что нового на GitHub",
-  "updateDownloadStarted": "Загрузка начата в браузере"
+  "updateDownloadStarted": "Загрузка начата в браузере",
+  "updateOpenPage": "Открыть страницу загрузки",
+  "updatePageOpened": "Страница открыта в браузере",
+  "updateOpenFailed": "Не удалось открыть браузер",
+  "updateCriticalTitle": "Важное обновление {version}",
+  "@updateCriticalTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateCriticalBody": "Эта версия исправляет важную проблему. Установите её, как только сможете. VPN пока продолжит работать."
 }

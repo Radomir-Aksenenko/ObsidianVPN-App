@@ -1807,6 +1807,36 @@ abstract class AppLocalizations {
   /// In ru, this message translates to:
   /// **'Загрузка начата в браузере'**
   String get updateDownloadStarted;
+
+  /// No description provided for @updateOpenPage.
+  ///
+  /// In ru, this message translates to:
+  /// **'Открыть страницу загрузки'**
+  String get updateOpenPage;
+
+  /// No description provided for @updatePageOpened.
+  ///
+  /// In ru, this message translates to:
+  /// **'Страница открыта в браузере'**
+  String get updatePageOpened;
+
+  /// No description provided for @updateOpenFailed.
+  ///
+  /// In ru, this message translates to:
+  /// **'Не удалось открыть браузер'**
+  String get updateOpenFailed;
+
+  /// No description provided for @updateCriticalTitle.
+  ///
+  /// In ru, this message translates to:
+  /// **'Важное обновление {version}'**
+  String updateCriticalTitle(String version);
+
+  /// No description provided for @updateCriticalBody.
+  ///
+  /// In ru, this message translates to:
+  /// **'Эта версия исправляет важную проблему. Установите её, как только сможете. VPN пока продолжит работать.'**
+  String get updateCriticalBody;
 }
 
 class _AppLocalizationsDelegate

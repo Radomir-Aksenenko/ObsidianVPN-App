@@ -67,10 +67,34 @@ void main() {
       expect(find.text('Сейчас установлена $kAppVersion'), findsOneWidget);
       expect(find.text('Что изменилось'), findsOneWidget);
       expect(find.text('Быстрее переподключение'), findsOneWidget);
-      expect(find.text('Скачать'), findsOneWidget);
+      expect(find.text('Открыть страницу загрузки'), findsOneWidget);
       expect(find.text('Позже'), findsOneWidget);
     },
   );
+
+  testWidgets('a critical release cannot be skipped', (tester) async {
+    final state = await buildState(FakeVpnBackend());
+    await _pumpHost(
+      tester,
+      state,
+      release: const AppRelease(
+        version: '99.0.0',
+        tagName: 'v99.0.0',
+        htmlUrl: 'https://github.com/example/app/releases/tag/v99.0.0',
+        notes: '',
+        publishedAt: null,
+        assets: [],
+        minVersion: '99.0.0',
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Важное обновление 99.0.0'), findsOneWidget);
+    expect(find.text('Пропустить эту версию'), findsNothing);
+    expect(find.text('Позже'), findsOneWidget);
+  });
 
   testWidgets('the notes block is hidden when the release has none', (
     tester,

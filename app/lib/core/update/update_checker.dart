@@ -1,9 +1,21 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
-/// Latest non-prerelease release of the desktop app on GitHub.
+import 'package:url_launcher/url_launcher.dart';
+
+/// Latest non-prerelease release of the app on GitHub.
 const String kLatestReleaseUrl =
     'https://api.github.com/repos/Radomir-Aksenenko/ObsidianVPN-App/releases/latest';
+
+/// Marks every version below the given one as critically outdated. It lives in
+/// the release notes as an HTML comment, so GitHub does not show it, for
+/// example `<!-- obsidian-min-version: 2.1.0 -->`. A later release keeps the
+/// marker, so skipping one release cannot hide a critical fix.
+final RegExp _minVersionMarker = RegExp(
+  r'<!--\s*obsidian-min-version:\s*([^\s>]+)\s*-->\s*',
+  caseSensitive: false,
+);
 
 /// A file attached to a GitHub release.
 final class ReleaseAsset {
@@ -34,6 +46,7 @@ final class AppRelease {
     required this.notes,
     required this.publishedAt,
     required this.assets,
+    this.minVersion,
   });
 
   /// Semver string without the leading `v`, for example `2.1.0`.
@@ -53,6 +66,19 @@ final class AppRelease {
 
   /// Files attached to the release.
   final List<ReleaseAsset> assets;
+
+  /// Lowest version that is not critically outdated, or null when the release
+  /// does not say.
+  final String? minVersion;
+
+  /// Whether a user on [currentVersion] should not be allowed to skip this
+  /// release.
+  bool isCriticalFor(String currentVersion) {
+    final min = minVersion;
+    return min != null &&
+        _parseVersion(currentVersion) != null &&
+        compareVersions(currentVersion, min) < 0;
+  }
 
   /// Parses one object from the GitHub `releases/latest` response.
   ///
@@ -87,15 +113,21 @@ final class AppRelease {
       }
     }
 
+    final notes = body is String ? body : '';
+    final minVersion = _minVersionMarker.firstMatch(notes)?.group(1);
+
     return AppRelease(
       version: _stripV(tagName),
       tagName: tagName,
       htmlUrl: htmlUrl,
-      notes: body is String ? body : '',
+      notes: notes.replaceAll(_minVersionMarker, ''),
       publishedAt: published is String
           ? DateTime.tryParse(published)?.toUtc()
           : null,
       assets: List.unmodifiable(assets),
+      minVersion: minVersion != null && _parseVersion(minVersion) != null
+          ? _stripV(minVersion)
+          : null,
     );
   }
 }
@@ -112,14 +144,29 @@ int compareVersions(String a, String b) {
   return _compareParsed(left, right).sign;
 }
 
+/// Name of the APK split for the running app, or null outside Android builds.
+String? currentAndroidAbi() => switch (Abi.current()) {
+  Abi.androidArm64 => 'arm64-v8a',
+  Abi.androidArm => 'armeabi-v7a',
+  Abi.androidX64 => 'x86_64',
+  _ => null,
+};
+
 /// Picks the installer or archive for [os] (a `Platform.operatingSystem`
-/// value). Windows prefers the setup `.exe` and falls back to the zip.
-/// Returns null for unsupported platforms or when no matching asset exists.
-ReleaseAsset? pickAssetForPlatform(AppRelease r, String os) {
+/// value). Windows prefers the setup `.exe` and falls back to the zip. Android
+/// needs the APK for [androidAbi]. An iOS build is unsigned and cannot be
+/// installed from a download, so iOS gets no file. Returns null for those
+/// platforms and when no matching asset exists.
+ReleaseAsset? pickAssetForPlatform(
+  AppRelease r,
+  String os, {
+  String? androidAbi,
+}) {
   final suffixes = switch (os) {
     'windows' => const ['-windows-x64-setup.exe', '-windows-x64.zip'],
     'macos' => const ['-macos.zip'],
     'linux' => const ['-linux-x64.tar.gz'],
+    'android' when androidAbi != null => ['-android-$androidAbi.apk'],
     _ => const <String>[],
   };
   for (final suffix in suffixes) {
@@ -133,8 +180,13 @@ ReleaseAsset? pickAssetForPlatform(AppRelease r, String os) {
 /// Whether the user should be told about [r].
 ///
 /// Returns false only when [skippedVersion] is the same version as [r]
-/// (a leading `v` is ignored).
-bool shouldNotify(AppRelease r, {String? skippedVersion}) {
+/// (a leading `v` is ignored) and [r] is not critical for [currentVersion].
+bool shouldNotify(
+  AppRelease r, {
+  String? skippedVersion,
+  String? currentVersion,
+}) {
+  if (currentVersion != null && r.isCriticalFor(currentVersion)) return true;
   if (skippedVersion == null) return true;
   return _stripV(skippedVersion.trim()) != r.version;
 }
@@ -210,20 +262,27 @@ final class UpdateChecker {
 /// Opens [url] in the default browser.
 ///
 /// Only `http` and `https` URLs are accepted; anything else is ignored. The
-/// URL is passed as a process argument and never goes through a shell. Never
-/// throws.
-Future<void> openInBrowser(String url) async {
-  if (!_isWebUrl(url)) return;
-  final command = _browserCommand(url);
-  if (command == null) return;
+/// URL is passed as a process argument and never goes through a shell. Returns
+/// whether the browser was started. Never throws.
+Future<bool> openInBrowser(String url) async {
+  if (!_isWebUrl(url)) return false;
   try {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    }
+    final command = _browserCommand(url);
+    if (command == null) return false;
     await Process.start(
       command.$1,
       command.$2,
       mode: ProcessStartMode.detached,
     );
+    return true;
   } on Object {
-    return;
+    return false;
   }
 }
 
