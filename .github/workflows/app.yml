@@ -486,7 +486,8 @@ jobs:
           sudo apt-get install -y \
             clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
-            libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev
+            libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev \
+            desktop-file-utils
 
       - name: Download core assets
         uses: actions/download-artifact@v4
@@ -540,7 +541,7 @@ jobs:
           for bin in "$APPDIR/usr/lib/obsidian/obsidian" "$APPDIR"/usr/lib/obsidian/lib/*.so; do
             ldd "$bin" 2>/dev/null | awk '/=> \//{print $3}'
           done | sort -u | grep -E '/(libsecret|libayatana|libdbusmenu|libindicator|libgcrypt|libgpg-error|liblzma|libjsoncpp)[^/]*$' | while read -r lib; do
-            cp -nL "$lib" "$APPDIR/usr/lib/obsidian/lib/"
+            cp -L --update=none "$lib" "$APPDIR/usr/lib/obsidian/lib/"
           done
 
           cat > "$APPDIR/AppRun" <<'EOF'
