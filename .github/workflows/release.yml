@@ -92,6 +92,7 @@ jobs:
           copy_app_file obsidian-unsigned.ipa "Obsidian-${VERSION}-ios-unsigned.ipa"
           copy_app_file obsidian-macos.zip "Obsidian-${VERSION}-macos.zip"
           copy_app_file obsidian-linux-x64.tar.gz "Obsidian-${VERSION}-linux-x64.tar.gz"
+          copy_app_file obsidian-linux-x64.AppImage "Obsidian-${VERSION}-linux-x64.AppImage"
           copy_app_file obsidian-windows-x64.zip "Obsidian-${VERSION}-windows-x64.zip"
           copy_app_file obsidian-windows-x64-setup.exe "Obsidian-${VERSION}-windows-x64-setup.exe"
 
