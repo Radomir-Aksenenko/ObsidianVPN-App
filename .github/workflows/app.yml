@@ -532,8 +532,9 @@ jobs:
           BUNDLE="$PWD/app/build/linux/x64/release/bundle"
           APPDIR="$PWD/AppDir"
           rm -rf "$APPDIR"
-          mkdir -p "$APPDIR/usr/lib/obsidian" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
-          cp -a "$BUNDLE/." "$APPDIR/usr/lib/obsidian/"
+          # Flutter needs data/ and lib/ next to the executable, so the whole bundle goes into usr/bin.
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+          cp -a "$BUNDLE/." "$APPDIR/usr/bin/"
 
           # The AppImage must run on any distro (NixOS included) with nothing installed,
           # so linuxdeploy bundles every dependency except glibc and the GPU/X11 stack,
@@ -543,11 +544,11 @@ jobs:
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
           export APPDIR="$HERE"
-          export LD_LIBRARY_PATH="$HERE/usr/lib/obsidian/lib:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           for hook in "$HERE"/apprun-hooks/*.sh; do
             [ -f "$hook" ] && . "$hook"
           done
-          exec "$HERE/usr/lib/obsidian/obsidian" "$@"
+          exec "$HERE/usr/bin/obsidian" "$@"
           EOF
           sed -i 's/^          //' tools/AppRun
           chmod +x tools/AppRun
@@ -574,7 +575,7 @@ jobs:
           # Every Flutter library goes in as --library so linuxdeploy resolves its dependencies.
           # The executable stays untouched, so its own $ORIGIN/lib rpath keeps working.
           libs=()
-          for f in "$APPDIR"/usr/lib/obsidian/lib/*.so; do
+          for f in "$APPDIR"/usr/bin/lib/*.so; do
             libs+=(--library "$f")
           done
           export DEPLOY_GTK_VERSION=3
@@ -585,7 +586,7 @@ jobs:
             --custom-apprun tools/AppRun --plugin gtk
 
           # linuxdeploy copied the Flutter libraries a second time into usr/lib, drop the copies.
-          for f in "$APPDIR"/usr/lib/obsidian/lib/*.so*; do
+          for f in "$APPDIR"/usr/bin/lib/*.so*; do
             rm -f "$APPDIR/usr/lib/$(basename "$f")"
           done
 
