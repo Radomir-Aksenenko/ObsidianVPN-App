@@ -118,10 +118,8 @@ jobs:
           echo "Disk usage before cleanup:"
           df -h /
           # Preinstalled toolchains the Android build does not use. /usr/local/lib/android (SDK/NDK) is kept.
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium "$AGENT_TOOLSDIRECTORY/CodeQL"
-          sudo docker image prune --all --force || true
-          echo "Disk usage after cleanup:"
-          df -h /
+          # The deletion runs in the background, so the following steps start at once.
+          (sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium "$AGENT_TOOLSDIRECTORY/CodeQL"; sudo docker image prune --all --force || true) >/dev/null 2>&1 &
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -140,6 +138,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Only main and tag builds write the cache, other runs just read it.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -180,7 +184,7 @@ jobs:
           set -euo pipefail
           mkdir -p ../app/android/app/libs
           gomobile bind \
-            -target=android \
+            -target=android/arm,android/arm64,android/amd64 \
             -androidapi 24 \
             -ldflags="-extldflags=-Wl,-z,max-page-size=16384" \
             -javapkg=com.obsidian.core \
