@@ -487,7 +487,7 @@ jobs:
             clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev \
-            desktop-file-utils
+            desktop-file-utils file patchelf librsvg2-common libglib2.0-bin
 
       - name: Download core assets
         uses: actions/download-artifact@v4
@@ -535,25 +535,24 @@ jobs:
           mkdir -p "$APPDIR/usr/lib/obsidian" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
           cp -a "$BUNDLE/." "$APPDIR/usr/lib/obsidian/"
 
-          # Bundle the libraries a minimal distro (NixOS, Alpine-based setups) may lack:
-          # tray, secret storage, lzma. GTK and the C runtime stay on the host.
-          mkdir -p "$APPDIR/usr/lib/obsidian/lib"
-          for bin in "$APPDIR/usr/lib/obsidian/obsidian" "$APPDIR"/usr/lib/obsidian/lib/*.so; do
-            ldd "$bin" 2>/dev/null | awk '/=> \//{print $3}'
-          done | sort -u | grep -E '/(libsecret|libayatana|libdbusmenu|libindicator|libgcrypt|libgpg-error|liblzma|libjsoncpp)[^/]*$' | while read -r lib; do
-            cp -L --update=none "$lib" "$APPDIR/usr/lib/obsidian/lib/"
-          done
-
-          cat > "$APPDIR/AppRun" <<'EOF'
+          # The AppImage must run on any distro (NixOS included) with nothing installed,
+          # so linuxdeploy bundles every dependency except glibc and the GPU/X11 stack,
+          # and its GTK plugin adds the GTK runtime data (schemas, pixbuf loaders, themes).
+          mkdir -p tools
+          cat > tools/AppRun <<'EOF'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/usr/lib/obsidian/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export APPDIR="$HERE"
+          export LD_LIBRARY_PATH="$HERE/usr/lib/obsidian/lib:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          for hook in "$HERE"/apprun-hooks/*.sh; do
+            [ -f "$hook" ] && . "$hook"
+          done
           exec "$HERE/usr/lib/obsidian/obsidian" "$@"
           EOF
-          sed -i 's/^          //' "$APPDIR/AppRun"
-          chmod +x "$APPDIR/AppRun"
+          sed -i 's/^          //' tools/AppRun
+          chmod +x tools/AppRun
 
-          cat > "$APPDIR/obsidian.desktop" <<'EOF'
+          cat > obsidian.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
           Name=Obsidian VPN
@@ -563,13 +562,34 @@ jobs:
           StartupWMClass=com.obsidian.vpn
           Terminal=false
           EOF
-          sed -i 's/^          //' "$APPDIR/obsidian.desktop"
-          cp app/assets/icon/icon_1024.png "$APPDIR/obsidian.png"
+          sed -i 's/^          //' obsidian.desktop
+          cp app/assets/icon/icon_1024.png obsidian.png
           cp app/assets/icon/icon_1024.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/obsidian.png"
 
-          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
-          ARCH=x86_64 ./appimagetool --appimage-extract-and-run "$APPDIR" dist/obsidian-linux-x64.AppImage
+          curl -fsSL -o tools/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o tools/linuxdeploy-plugin-gtk.sh https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          curl -fsSL -o tools/appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
+          chmod +x tools/linuxdeploy-x86_64.AppImage tools/linuxdeploy-plugin-gtk.sh tools/appimagetool
+
+          # Every Flutter library goes in as --library so linuxdeploy resolves its dependencies.
+          # The executable stays untouched, so its own $ORIGIN/lib rpath keeps working.
+          libs=()
+          for f in "$APPDIR"/usr/lib/obsidian/lib/*.so; do
+            libs+=(--library "$f")
+          done
+          export DEPLOY_GTK_VERSION=3
+          export PATH="$PWD/tools:$PATH"
+          ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir "$APPDIR" "${libs[@]}" \
+            --desktop-file obsidian.desktop --icon-file obsidian.png \
+            --custom-apprun tools/AppRun --plugin gtk
+
+          # linuxdeploy copied the Flutter libraries a second time into usr/lib, drop the copies.
+          for f in "$APPDIR"/usr/lib/obsidian/lib/*.so*; do
+            rm -f "$APPDIR/usr/lib/$(basename "$f")"
+          done
+
+          ARCH=x86_64 ./tools/appimagetool --appimage-extract-and-run "$APPDIR" dist/obsidian-linux-x64.AppImage
           ls -l dist
 
       - name: Upload Linux artifact
