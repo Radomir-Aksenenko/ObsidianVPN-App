@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: cloud backup and device-to-device transfer of servers and keys. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="state.json"/>
+        <include domain="file" path="secrets.json"/>
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="state.json"/>
+        <include domain="file" path="secrets.json"/>
+    </device-transfer>
+</data-extraction-rules>

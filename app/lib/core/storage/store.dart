@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:obsidian_vpn/core/codec/client_config.dart';
@@ -16,6 +17,19 @@ const int kStateSchemaVersion = 1;
 
 /// File name of the JSON state inside the app support directory.
 const String kStateFileName = 'state.json';
+
+/// File name of [FileSecretStore] inside the app support directory.
+const String kSecretsFileName = 'secrets.json';
+
+/// Secret-store keys of the state.json mirror: `state.mirror.count` holds the
+/// number of chunks, `state.mirror.<n>` the chunks. The mirror lets the app
+/// rebuild its servers after a reinstall wiped the app directory but left the
+/// keychain (iOS) or the credential store (desktop) alone.
+const String _mirrorCount = 'state.mirror.count';
+const String _mirrorChunk = 'state.mirror.';
+
+/// Chunk size in characters. Windows Credential Manager caps a value at 2560 bytes.
+const int _mirrorChunkSize = 800;
 
 /// Key-value store for secrets (raw keys, client private keys, SSH passwords,
 /// admin tokens). Values never go to state.json.
@@ -57,6 +71,92 @@ final class SecureSecretStore implements SecretStore {
     for (final key in all.keys) {
       if (key.startsWith(prefix)) await _storage.delete(key: key);
     }
+  }
+}
+
+/// [SecretStore] that keeps secrets in a JSON file inside the app directory.
+///
+/// Android Keystore keys die with an uninstall, so Keystore-encrypted secrets
+/// cannot come back from Auto Backup. A plain file in the app-private directory
+/// can: it is included in the Android backup rules and restored on reinstall.
+/// Secrets in [legacy] (the old Keystore store) are copied over on first read.
+final class FileSecretStore implements SecretStore {
+  /// Creates a store that writes `secrets.json` into [dir].
+  FileSecretStore({required String dir, this._legacy})
+    : _path = _join(dir, kSecretsFileName);
+
+  final String _path;
+  final SecretStore? _legacy;
+  Map<String, String>? _cache;
+  Future<void> _chain = Future<void>.value();
+
+  Future<Map<String, String>> _load() async {
+    final cached = _cache;
+    if (cached != null) return cached;
+    final map = <String, String>{};
+    final file = File(_path);
+    try {
+      if (await file.exists()) {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map) {
+          decoded.forEach((k, v) {
+            if (k is String && v is String) map[k] = v;
+          });
+        }
+      }
+    } on Object {
+      // An unreadable file is treated as empty; the legacy store may still help.
+    }
+    return _cache = map;
+  }
+
+  Future<void> _save(Map<String, String> map) {
+    final body = jsonEncode(map);
+    final next = _chain.then((_) async {
+      final temp = File('$_path.tmp');
+      await temp.writeAsString(body, flush: true);
+      await temp.rename(_path);
+    });
+    _chain = next.catchError((Object _) {});
+    return next;
+  }
+
+  @override
+  Future<String?> read(String key) async {
+    final map = await _load();
+    final value = map[key];
+    if (value != null) return value;
+    final legacy = _legacy;
+    if (legacy == null) return null;
+    final old = await legacy.read(key);
+    if (old != null) {
+      map[key] = old;
+      await _save(map);
+    }
+    return old;
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    final map = await _load();
+    map[key] = value;
+    await _save(map);
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    final map = await _load();
+    if (map.remove(key) != null) await _save(map);
+    await _legacy?.delete(key);
+  }
+
+  @override
+  Future<void> deletePrefix(String prefix) async {
+    final map = await _load();
+    final before = map.length;
+    map.removeWhere((key, _) => key.startsWith(prefix));
+    if (map.length != before) await _save(map);
+    await _legacy?.deletePrefix(prefix);
   }
 }
 
@@ -195,8 +295,18 @@ final class AppStore {
     await Directory(dir).create(recursive: true);
     final file = File(_join(dir, kStateFileName));
 
-    if (await file.exists()) {
-      final parsed = _parseStateFile(await _readStateText(file));
+    final exists = await file.exists();
+    var parsed = exists ? _parseStateFile(await _readStateText(file)) : null;
+    var restored = false;
+    if (parsed == null) {
+      // state.json is gone or unreadable. A reinstall may have wiped the app
+      // directory while the secret store survived, so try the mirror first.
+      final mirror = await _readMirror(secrets);
+      parsed = mirror == null ? null : _parseStateFile(mirror);
+      restored = parsed != null;
+    }
+
+    if (exists || restored) {
       if (parsed != null) {
         final loaded = await _loadState(parsed, secrets);
         final store = AppStore._(
@@ -206,9 +316,14 @@ final class AppStore {
           profiles: loaded.profiles,
           issued: loaded.issued,
           settings: parsed.settings,
-          notices: loaded.notices,
+          notices: List<String>.of(loaded.notices),
         );
-        if (parsed.deviceId == null) await store._persist();
+        if (restored) {
+          store._notices.add('Серверы и ключи восстановлены после переустановки');
+        }
+        // Always rewrite: it also refreshes the secret-store mirror for installs
+        // that predate it.
+        await store._persist();
         return store;
       }
       await _moveAside(file);
@@ -305,7 +420,10 @@ final class AppStore {
     final dir = _dir;
     if (dir == null) return Future<void>.value();
     final body = const JsonEncoder.withIndent('  ').convert(_toJson());
-    final next = _writeChain.then((_) => _writeAtomic(dir, body));
+    final next = _writeChain.then((_) async {
+      await _writeAtomic(dir, body);
+      await _writeMirror(secrets, body);
+    });
     _writeChain = next.catchError((Object _) {});
     return next;
   }
@@ -319,6 +437,44 @@ final class AppStore {
       for (final k in _issued) _issuedMetaJson(k),
     ],
   };
+}
+
+/// Copies the state.json text into [secrets] in chunks and drops stale chunks.
+/// Failures are ignored: the mirror is a safety net, state.json stays the source.
+Future<void> _writeMirror(SecretStore secrets, String body) async {
+  try {
+    final chunks = <String>[
+      for (var i = 0; i < body.length; i += _mirrorChunkSize)
+        body.substring(i, min(i + _mirrorChunkSize, body.length)),
+    ];
+    final oldCount = int.tryParse(await secrets.read(_mirrorCount) ?? '') ?? 0;
+    for (var i = 0; i < chunks.length; i++) {
+      await secrets.write('$_mirrorChunk$i', chunks[i]);
+    }
+    await secrets.write(_mirrorCount, '${chunks.length}');
+    for (var i = chunks.length; i < oldCount; i++) {
+      await secrets.delete('$_mirrorChunk$i');
+    }
+  } on Object {
+    // Keep going without a mirror.
+  }
+}
+
+/// Reads the mirror back. Returns null when it is absent or incomplete.
+Future<String?> _readMirror(SecretStore secrets) async {
+  try {
+    final count = int.tryParse(await secrets.read(_mirrorCount) ?? '') ?? 0;
+    if (count <= 0) return null;
+    final buffer = StringBuffer();
+    for (var i = 0; i < count; i++) {
+      final chunk = await secrets.read('$_mirrorChunk$i');
+      if (chunk == null) return null;
+      buffer.write(chunk);
+    }
+    return buffer.toString();
+  } on Object {
+    return null;
+  }
 }
 
 /// Metadata read from state.json, before secrets are attached.

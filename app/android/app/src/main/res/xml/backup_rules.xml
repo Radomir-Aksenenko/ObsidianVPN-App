@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older Auto Backup: keep servers and keys across a reinstall.
+     The client Go binaries and logs are not worth backing up. -->
+<full-backup-content>
+    <include domain="file" path="state.json"/>
+    <include domain="file" path="secrets.json"/>
+</full-backup-content>

@@ -132,9 +132,14 @@ class AppState extends ChangeNotifier {
     List<String> launchArgs = const <String>[],
   }) async {
     final support = await getApplicationSupportDirectory();
+    // Android: Keystore keys die with an uninstall, so secrets live in a file that
+    // Auto Backup restores. Old Keystore secrets are copied over on first read.
+    final SecretStore secrets = platform.isAndroid
+        ? FileSecretStore(dir: support.path, legacy: SecureSecretStore())
+        : SecureSecretStore();
     final store = await AppStore.open(
       dir: support.path,
-      secrets: SecureSecretStore(),
+      secrets: secrets,
       legacyDir: _legacyWindowsDir(),
     );
     return AppState(store: store, launchArgs: launchArgs);
