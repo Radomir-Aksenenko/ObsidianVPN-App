@@ -931,6 +931,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateDownloadStarted => 'Download started in the browser';
 
   @override
+  String get updateInstall => 'Update';
+
+  @override
+  String get updateDownloading => 'Downloading the update...';
+
+  @override
+  String get updateInstalling => 'Installing, the app will restart';
+
+  @override
+  String get updateInstallFailed => 'Update failed, please try again';
+
+  @override
   String get updateOpenPage => 'Open download page';
 
   @override

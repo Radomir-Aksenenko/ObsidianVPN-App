@@ -932,6 +932,18 @@ class AppLocalizationsRu extends AppLocalizations {
   String get updateDownloadStarted => 'Загрузка начата в браузере';
 
   @override
+  String get updateInstall => 'Обновить';
+
+  @override
+  String get updateDownloading => 'Скачиваю обновление...';
+
+  @override
+  String get updateInstalling => 'Устанавливаю, приложение перезапустится';
+
+  @override
+  String get updateInstallFailed => 'Не удалось обновить, попробуйте ещё раз';
+
+  @override
   String get updateOpenPage => 'Открыть страницу загрузки';
 
   @override

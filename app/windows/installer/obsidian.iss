@@ -58,6 +58,9 @@ Name: "{autodesktop}\Obsidian"; Filename: "{app}\{#AppExeName}"; Tasks: desktopi
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,Obsidian}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
+; Started by the in-app updater (it passes /RELAUNCH=1 with /VERYSILENT): the new version opens by itself.
+Filename: "{app}\{#AppExeName}"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
+
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#ClientExeName}"; Flags: runhidden; RunOnceId: "KillClient"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
@@ -67,6 +70,11 @@ const
   OldAppPrefix = 'ObsidianVPN';
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
   WowUninstallKey = 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall';
+
+function RelaunchRequested: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
 
 procedure KillProcess(const ImageName: string);
 var

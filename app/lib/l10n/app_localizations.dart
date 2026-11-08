@@ -1808,6 +1808,30 @@ abstract class AppLocalizations {
   /// **'Загрузка начата в браузере'**
   String get updateDownloadStarted;
 
+  /// No description provided for @updateInstall.
+  ///
+  /// In ru, this message translates to:
+  /// **'Обновить'**
+  String get updateInstall;
+
+  /// No description provided for @updateDownloading.
+  ///
+  /// In ru, this message translates to:
+  /// **'Скачиваю обновление...'**
+  String get updateDownloading;
+
+  /// No description provided for @updateInstalling.
+  ///
+  /// In ru, this message translates to:
+  /// **'Устанавливаю, приложение перезапустится'**
+  String get updateInstalling;
+
+  /// No description provided for @updateInstallFailed.
+  ///
+  /// In ru, this message translates to:
+  /// **'Не удалось обновить, попробуйте ещё раз'**
+  String get updateInstallFailed;
+
   /// No description provided for @updateOpenPage.
   ///
   /// In ru, this message translates to:

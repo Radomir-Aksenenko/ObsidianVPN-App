@@ -1,9 +1,12 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Durations;
 
 import '../../app_version.dart';
 import '../../core/update/update_checker.dart';
+import '../../core/update/windows_updater.dart';
+import '../../desktop/desktop_shell.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
@@ -22,11 +25,41 @@ Future<void> showUpdateSheet(BuildContext context, AppRelease release) {
     Platform.operatingSystem,
     androidAbi: currentAndroidAbi(),
   );
+  // Windows with a setup.exe: download, install silently and restart in place.
+  final inApp = Platform.isWindows &&
+      asset != null &&
+      asset.name.toLowerCase().endsWith('-setup.exe') &&
+      isTrustedDownloadUrl(asset.url);
+  final install = ValueNotifier<UpdateInstallProgress>(
+    const UpdateInstallProgress.idle(),
+  );
+
+  Future<void> runInstall() async {
+    if (asset == null || install.value.busy) return;
+    install.value = const UpdateInstallProgress.downloading(0);
+    try {
+      final file = await downloadInstaller(
+        asset,
+        onProgress: (f) => install.value = UpdateInstallProgress.downloading(f),
+      );
+      install.value = const UpdateInstallProgress.installing();
+      await launchSilentInstaller(file);
+      // The installer closes the app too, but leaving cleanly disconnects the VPN.
+      await quitApp();
+    } on Object catch (e) {
+      debugPrint('update failed: $e');
+      install.value = const UpdateInstallProgress.failed();
+    }
+  }
+
   return showAdaptiveSheet<void>(context, (sheetContext) {
     return UpdateSheet(
       release: release,
       currentVersion: kAppVersion,
       hasDownload: asset != null,
+      inAppInstall: inApp,
+      install: install,
+      onInstall: runInstall,
       onDownload: () async {
         Navigator.of(sheetContext).pop();
         final opened = await openInBrowser(asset?.url ?? release.htmlUrl);
@@ -62,6 +95,9 @@ class UpdateSheet extends StatelessWidget {
     required this.currentVersion,
     this.hasDownload = true,
     required this.onDownload,
+    this.inAppInstall = false,
+    this.install,
+    this.onInstall,
     required this.onLater,
     required this.onSkip,
     required this.onOpenReleasePage,
@@ -78,6 +114,15 @@ class UpdateSheet extends StatelessWidget {
 
   /// Primary action.
   final VoidCallback onDownload;
+
+  /// Whether the primary action downloads and installs the update inside the app.
+  final bool inAppInstall;
+
+  /// Progress of the in-app install. Only read when [inAppInstall] is set.
+  final ValueListenable<UpdateInstallProgress>? install;
+
+  /// Starts the in-app install. Only used when [inAppInstall] is set.
+  final VoidCallback? onInstall;
 
   /// Closes the sheet without other changes.
   final VoidCallback onLater;
@@ -125,16 +170,47 @@ class UpdateSheet extends StatelessWidget {
             ),
           ],
           const SizedBox(height: Space.s20),
-          ObsButton(
-            label: hasDownload ? l10n.updateDownload : l10n.updateOpenPage,
-            onPressed: onDownload,
-          ),
-          const SizedBox(height: Space.s8),
-          ObsButton(
-            label: l10n.updateLater,
-            kind: ObsButtonKind.secondary,
-            onPressed: onLater,
-          ),
+          if (inAppInstall && install != null)
+            ValueListenableBuilder<UpdateInstallProgress>(
+              valueListenable: install!,
+              builder: (context, p, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (p.busy) ...[
+                    LinearProgressIndicator(value: p.fraction),
+                    const SizedBox(height: Space.s8),
+                    Text(
+                      p.installing ? l10n.updateInstalling : l10n.updateDownloading,
+                      style: theme.bodyMedium!.copyWith(color: c.textDim),
+                    ),
+                  ] else ...[
+                    if (p.failed) ...[
+                      Text(l10n.updateInstallFailed, style: theme.bodyMedium),
+                      const SizedBox(height: Space.s8),
+                    ],
+                    ObsButton(label: l10n.updateInstall, onPressed: onInstall),
+                    const SizedBox(height: Space.s8),
+                    ObsButton(
+                      label: l10n.updateLater,
+                      kind: ObsButtonKind.secondary,
+                      onPressed: onLater,
+                    ),
+                  ],
+                ],
+              ),
+            )
+          else ...[
+            ObsButton(
+              label: hasDownload ? l10n.updateDownload : l10n.updateOpenPage,
+              onPressed: onDownload,
+            ),
+            const SizedBox(height: Space.s8),
+            ObsButton(
+              label: l10n.updateLater,
+              kind: ObsButtonKind.secondary,
+              onPressed: onLater,
+            ),
+          ],
           const SizedBox(height: Space.s4),
           Wrap(
             alignment: WrapAlignment.spaceBetween,
@@ -157,3 +233,38 @@ class UpdateSheet extends StatelessWidget {
     );
   }
 }
+
+/// Progress of the in-app install shown by the update sheet.
+@immutable
+class UpdateInstallProgress {
+  /// Nothing started yet.
+  const UpdateInstallProgress.idle() : this._(_Phase.idle, null);
+
+  /// Downloading; [fraction] is 0..1.
+  const UpdateInstallProgress.downloading(double fraction)
+    : this._(_Phase.downloading, fraction);
+
+  /// The installer was started and the app is about to restart.
+  const UpdateInstallProgress.installing() : this._(_Phase.installing, null);
+
+  /// Download or start failed; the user can try again.
+  const UpdateInstallProgress.failed() : this._(_Phase.failed, null);
+
+  const UpdateInstallProgress._(this._phase, this.fraction);
+
+  final _Phase _phase;
+
+  /// Download fraction in 0..1, or null when not downloading.
+  final double? fraction;
+
+  /// Whether a download or install is running.
+  bool get busy => _phase == _Phase.downloading || _phase == _Phase.installing;
+
+  /// Whether the installer was started.
+  bool get installing => _phase == _Phase.installing;
+
+  /// Whether the last attempt failed.
+  bool get failed => _phase == _Phase.failed;
+}
+
+enum _Phase { idle, downloading, installing, failed }

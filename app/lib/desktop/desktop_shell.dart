@@ -178,3 +178,14 @@ Future<void> closeMainWindow() async {
   }
   await shell._handleClose();
 }
+
+/// Quits the app for good, whatever `minimizeToTray` says. Used by the updater
+/// right after it has started the installer.
+Future<void> quitApp() async {
+  final shell = DesktopShell._instance;
+  if (shell == null) {
+    await windowManager.destroy();
+    return;
+  }
+  await shell.quit();
+}
