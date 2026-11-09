@@ -421,15 +421,17 @@ jobs:
           done
           ls -la app/assets/bin
 
-      - name: Build darwin universal client if missing
+      - name: Build and verify darwin universal client
+        working-directory: core
         run: |
           set -euo pipefail
-          # The assets job runs on Linux, where lipo is absent, so the universal binary
-          # is normally missing. Rebuild the assets here, where lipo exists.
-          if [ ! -f app/assets/bin/obsidian-client-darwin-universal ]; then
-            bash scripts/build-core-assets.sh
-          fi
-          test -f app/assets/bin/obsidian-client-darwin-universal
+          # The Linux assets job can only produce thin Mach-O files. Rebuild
+          # both architectures here rather than trusting the downloaded name.
+          export CGO_ENABLED=0
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/obsidian-client-darwin-amd64" ./cmd/client
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/obsidian-client-darwin-arm64" ./cmd/client
+          lipo -create -output ../app/assets/bin/obsidian-client-darwin-universal "$RUNNER_TEMP/obsidian-client-darwin-amd64" "$RUNNER_TEMP/obsidian-client-darwin-arm64"
+          lipo -verify_arch x86_64 arm64 ../app/assets/bin/obsidian-client-darwin-universal
 
       - name: Fetch packages and generate l10n
         working-directory: app
