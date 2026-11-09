@@ -431,7 +431,7 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/obsidian-client-darwin-amd64" ./cmd/client
           GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/obsidian-client-darwin-arm64" ./cmd/client
           lipo -create -output ../app/assets/bin/obsidian-client-darwin-universal "$RUNNER_TEMP/obsidian-client-darwin-amd64" "$RUNNER_TEMP/obsidian-client-darwin-arm64"
-          lipo -verify_arch x86_64 arm64 ../app/assets/bin/obsidian-client-darwin-universal
+          lipo ../app/assets/bin/obsidian-client-darwin-universal -verify_arch x86_64 arm64
 
       - name: Fetch packages and generate l10n
         working-directory: app
