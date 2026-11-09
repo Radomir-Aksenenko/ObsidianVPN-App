@@ -37,23 +37,24 @@ const List<String> kDefaultSignatures = [
 
 /// Defaults from Go `DefaultClientConfig()`.
 ClientConfig goDefaultClientConfig() => const ClientConfig(
-      protocolVersion: kProtocolVersion,
-      tunAddress: kDefaultTunAddress,
-      dns: kPublicDns,
-      mtu: kMaxMtu,
-      profile: 'fast-secure',
-      jitter: 'off',
-      junkCount: 7,
-      junkMin: 50,
-      junkMax: 1000,
-      noiseMinSec: 10,
-      noiseMaxSec: 40,
-      keepaliveSec: 20,
-      enableUdpData: true,
-      signatures: kDefaultSignatures,
-    );
+  protocolVersion: kProtocolVersion,
+  tunAddress: kDefaultTunAddress,
+  dns: kPublicDns,
+  mtu: kMaxMtu,
+  profile: 'fast-secure',
+  jitter: 'off',
+  junkCount: 7,
+  junkMin: 50,
+  junkMax: 1000,
+  noiseMinSec: 10,
+  noiseMaxSec: 40,
+  keepaliveSec: 20,
+  enableUdpData: true,
+  signatures: kDefaultSignatures,
+);
 
-const _badUri = 'Не удалось разобрать ссылку. Проверьте, что она скопирована целиком.';
+const _badUri =
+    'Не удалось разобрать ссылку. Проверьте, что она скопирована целиком.';
 const _badPort = 'Некорректный порт в ссылке.';
 const _unsupported =
     'Неподдерживаемый формат. Используйте ссылку obsidian:// или vpn:// либо ключ OBSDN-.';
@@ -93,12 +94,14 @@ ClientConfig _parseUri(String raw) {
   final beforeFragment = hashAt >= 0 ? rest.substring(0, hashAt) : rest;
   final fragmentRaw = hashAt >= 0 ? rest.substring(hashAt + 1) : '';
   final queryAt = beforeFragment.indexOf('?');
-  final pathAndAuthority =
-      queryAt >= 0 ? beforeFragment.substring(0, queryAt) : beforeFragment;
+  final pathAndAuthority = queryAt >= 0
+      ? beforeFragment.substring(0, queryAt)
+      : beforeFragment;
   final queryRaw = queryAt >= 0 ? beforeFragment.substring(queryAt + 1) : '';
   final slashAt = pathAndAuthority.indexOf('/');
-  final authority =
-      slashAt >= 0 ? pathAndAuthority.substring(0, slashAt) : pathAndAuthority;
+  final authority = slashAt >= 0
+      ? pathAndAuthority.substring(0, slashAt)
+      : pathAndAuthority;
 
   final atAt = authority.lastIndexOf('@');
   final userinfoRaw = atAt >= 0 ? authority.substring(0, atAt) : '';
@@ -141,7 +144,8 @@ ClientConfig _parseUri(String raw) {
   }
   if (serverPublicKey.isEmpty) {
     throw const KeyFormatException(
-        'В ссылке нет публичного ключа сервера. Скопируйте ссылку заново.');
+      'В ссылке нет публичного ключа сервера. Скопируйте ссылку заново.',
+    );
   }
 
   var udpPort = first('udp_port');
@@ -285,6 +289,10 @@ ClientConfig _parseUri(String raw) {
   }
 
   return defaults.copyWith(
+    transport: first('transport'),
+    realityPublicKey: first('rpk'),
+    realityShortId: first('rid'),
+    allowDirectUdp: _parseBool(first('direct_udp'), false),
     serverHost: host,
     serverPort: serverPort,
     serverPublicKey: serverPublicKey,
@@ -337,7 +345,9 @@ ClientConfig _parseUri(String raw) {
 
 String _validPort(String port) {
   if (port.isEmpty) return port;
-  if (!RegExp(r'^[0-9]+$').hasMatch(port)) throw const KeyFormatException(_badPort);
+  if (!RegExp(r'^[0-9]+$').hasMatch(port)) {
+    throw const KeyFormatException(_badPort);
+  }
   _requirePortInRange(port);
   return port;
 }
@@ -451,7 +461,8 @@ ClientConfig _decodeObsdn(String input) {
     compressed = base32Decode(clean);
   } on FormatException {
     throw const KeyFormatException(
-        'Ключ OBSDN обрезан или содержит недопустимые символы. Скопируйте его заново.');
+      'Ключ OBSDN обрезан или содержит недопустимые символы. Скопируйте его заново.',
+    );
   }
 
   final Object? decoded;
@@ -466,16 +477,21 @@ ClientConfig _decodeObsdn(String input) {
     decoded = jsonDecode(utf8.decode(raw));
   } catch (_) {
     throw const KeyFormatException(
-        'Ключ OBSDN повреждён: не удалось распаковать данные. Скопируйте его заново.');
+      'Ключ OBSDN повреждён: не удалось распаковать данные. Скопируйте его заново.',
+    );
   }
   if (decoded is! Map<String, dynamic>) {
-    throw const KeyFormatException('Ключ OBSDN повреждён: внутри не объект JSON.');
+    throw const KeyFormatException(
+      'Ключ OBSDN повреждён: внутри не объект JSON.',
+    );
   }
   final compact = decoded;
 
   for (final req in const ['h', 'p', 'u', 'k']) {
     if (!compact.containsKey(req)) {
-      throw KeyFormatException('В ключе OBSDN нет поля "$req". Скопируйте ключ заново.');
+      throw KeyFormatException(
+        'В ключе OBSDN нет поля "$req". Скопируйте ключ заново.',
+      );
     }
   }
 
@@ -487,7 +503,8 @@ ClientConfig _decodeObsdn(String input) {
   }
 
   bool? flag(String key) => compact[key] is bool ? compact[key] as bool : null;
-  String str(String key) => compact[key] is String ? compact[key] as String : '';
+  String str(String key) =>
+      compact[key] is String ? compact[key] as String : '';
   double? number(String key) =>
       compact[key] is num ? (compact[key] as num).toDouble() : null;
 
@@ -523,6 +540,12 @@ ClientConfig _decodeObsdn(String input) {
   if (ka != null) c = c.copyWith(keepaliveSec: ka);
 
   final re = flag('re') ?? false;
+  c = c.copyWith(
+    transport: str('tr'),
+    realityPublicKey: str('rpk'),
+    realityShortId: str('rid'),
+    allowDirectUdp: flag('du') ?? false,
+  );
   final rk = str('rk');
   var rs = str('rs');
   if (re || rk.isNotEmpty || rs.isNotEmpty) {
@@ -583,7 +606,13 @@ Map<String, Object> _compactMap(ClientConfig c) {
     'v6': c.enableIpv6,
   };
   if (c.noTls) m['nt'] = true;
-  if (c.realityEnabled) {
+  if (c.transport.isNotEmpty) {
+    m['tr'] = c.transport;
+    m['rpk'] = c.realityPublicKey;
+    m['rid'] = c.realityShortId;
+    if (c.allowDirectUdp) m['du'] = true;
+  }
+  if (c.realityEnabled || c.transport == 'native-reality') {
     m['re'] = true;
     if (c.realityAuthKey.isNotEmpty) m['rk'] = c.realityAuthKey;
     if (c.realitySni.isNotEmpty) m['rs'] = c.realitySni;
@@ -608,8 +637,9 @@ String obsdnCompactJson(ClientConfig c) {
 /// The key carries no client private key and no label; `d` is 10.8.0.1 for
 /// the default DNS, as in the desktop app.
 String encodeObsdn(ClientConfig c) {
-  final compressed = ZLibCodec(level: 9)
-      .encode(utf8.encode(obsdnCompactJson(c)));
+  final compressed = ZLibCodec(
+    level: 9,
+  ).encode(utf8.encode(obsdnCompactJson(c)));
   final b32 = base32Encode(compressed);
   final groups = <String>[];
   for (var i = 0; i < b32.length; i += 4) {
@@ -628,7 +658,8 @@ String _escape(String s, _Escape mode) {
   const hex = '0123456789ABCDEF';
   final out = StringBuffer();
   for (final c in utf8.encode(s)) {
-    final isUnreserved = (c >= 0x30 && c <= 0x39) ||
+    final isUnreserved =
+        (c >= 0x30 && c <= 0x39) ||
         (c >= 0x41 && c <= 0x5a) ||
         (c >= 0x61 && c <= 0x7a) ||
         c == 0x2d ||
@@ -639,9 +670,11 @@ String _escape(String s, _Escape mode) {
       out.writeCharCode(c);
     } else if (mode == _Escape.query && c == 0x20) {
       out.write('+');
-    } else if (mode == _Escape.fragment && _fragmentReserved.codeUnits.contains(c)) {
+    } else if (mode == _Escape.fragment &&
+        _fragmentReserved.codeUnits.contains(c)) {
       out.writeCharCode(c);
-    } else if (mode == _Escape.userinfo && _userinfoReserved.codeUnits.contains(c)) {
+    } else if (mode == _Escape.userinfo &&
+        _userinfoReserved.codeUnits.contains(c)) {
       out.writeCharCode(c);
     } else {
       out.write('%${hex[c >> 4]}${hex[c & 0x0f]}');
@@ -667,7 +700,13 @@ String encodeUri(ClientConfig c, {String? label}) {
   if (!c.enableUdpData) q['udp_data'] = '0';
   if (c.enableIpv6) q['ipv6'] = '1';
   if (c.noTls) q['no_tls'] = '1';
-  if (c.realityEnabled) {
+  if (c.transport.isNotEmpty) {
+    q['transport'] = c.transport;
+    q['rpk'] = c.realityPublicKey;
+    q['rid'] = c.realityShortId;
+    if (c.allowDirectUdp) q['direct_udp'] = '1';
+  }
+  if (c.realityEnabled || c.transport == 'native-reality') {
     q['security'] = 'reality';
     if (c.realitySni.isNotEmpty) q['sni'] = c.realitySni;
     if (c.realityAuthKey.isNotEmpty) q['auth_key'] = c.realityAuthKey;
@@ -675,7 +714,9 @@ String encodeUri(ClientConfig c, {String? label}) {
       q['fp'] = c.fingerprint;
     }
   }
-  if (c.profile.isNotEmpty && c.profile != 'fast-secure') q['profile'] = c.profile;
+  if (c.profile.isNotEmpty && c.profile != 'fast-secure') {
+    q['profile'] = c.profile;
+  }
   if (c.mtu != 0 && c.mtu != kMaxMtu) q['mtu'] = c.mtu.toString();
   if (c.dns.isNotEmpty && c.dns != kPublicDns && c.dns != kServerDns) {
     q['dns'] = c.dns;
@@ -688,7 +729,9 @@ String encodeUri(ClientConfig c, {String? label}) {
 
   final keys = q.keys.toList()..sort();
   final query = keys
-      .map((k) => '${_escape(k, _Escape.query)}=${_escape(q[k]!, _Escape.query)}')
+      .map(
+        (k) => '${_escape(k, _Escape.query)}=${_escape(q[k]!, _Escape.query)}',
+      )
       .join('&');
 
   final userinfo = _escape(c.serverPublicKey, _Escape.userinfo);
@@ -713,7 +756,8 @@ String keyPreview(ClientConfig c) {
 /// SHA-256(seed), first 4 bytes as a big-endian uint32 n, N = 2 + n % 253.
 String deriveTunAddress(String seed) {
   final digest = const DartSha256().hashSync(utf8.encode(seed)).bytes;
-  final n = (digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3];
+  final n =
+      (digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3];
   final host = 2 + n % 253;
   return '10.8.0.$host/24';
 }
@@ -729,10 +773,9 @@ ClientConfig buildRuntimeConfig(
 }) {
   final defaults = goDefaultClientConfig();
 
-  final tunAddress =
-      c.tunAddress.isEmpty || c.tunAddress == kDefaultTunAddress
-          ? deriveTunAddress(profileId)
-          : c.tunAddress;
+  final tunAddress = c.tunAddress.isEmpty || c.tunAddress == kDefaultTunAddress
+      ? deriveTunAddress(profileId)
+      : c.tunAddress;
 
   final mtu = c.mtu <= 0 || c.mtu > kMaxMtu ? kMaxMtu : c.mtu;
 
@@ -743,7 +786,9 @@ ClientConfig buildRuntimeConfig(
   final noiseUnset = c.noiseMinSec == 0 && c.noiseMaxSec == 0;
 
   return c.copyWith(
-    protocolVersion: c.protocolVersion == 0 ? kProtocolVersion : c.protocolVersion,
+    protocolVersion: c.protocolVersion == 0
+        ? kProtocolVersion
+        : c.protocolVersion,
     udpPort: c.udpPort.isEmpty ? c.serverPort : c.udpPort,
     tunAddress: tunAddress,
     mtu: mtu,
@@ -771,7 +816,8 @@ Future<String?> clientPublicKeyFor(String privateHex) async {
   final hex = privateHex.trim().toLowerCase();
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(hex)) return null;
   final bytes = [
-    for (var i = 0; i < 64; i += 2) int.parse(hex.substring(i, i + 2), radix: 16),
+    for (var i = 0; i < 64; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
   ];
   final keyPair = await X25519().newKeyPairFromSeed(bytes);
   return _hex((await keyPair.extractPublicKey()).bytes);

@@ -4,6 +4,10 @@
 /// that the desktop app also stores; Go ignores it.
 class ClientConfig {
   const ClientConfig({
+    this.transport = '',
+    this.realityPublicKey = '',
+    this.realityShortId = '',
+    this.allowDirectUdp = false,
     this.protocolVersion = 0,
     this.serverHost = '',
     this.serverPort = '',
@@ -59,6 +63,10 @@ class ClientConfig {
   /// fields take Go zero values, the same as `json.Unmarshal` into a zero struct.
   factory ClientConfig.fromJson(Map<String, dynamic> json) {
     return ClientConfig(
+      transport: _str(json['transport']),
+      realityPublicKey: _str(json['reality_public_key']),
+      realityShortId: _str(json['reality_short_id']),
+      allowDirectUdp: _bool(json['allow_direct_udp']),
       protocolVersion: _int(json['protocol_version']),
       serverHost: _str(json['server_host']),
       serverPort: _str(json['server_port']),
@@ -112,6 +120,10 @@ class ClientConfig {
   }
 
   final int protocolVersion;
+  final String transport;
+  final String realityPublicKey;
+  final String realityShortId;
+  final bool allowDirectUdp;
   final String serverHost;
   final String serverPort;
   final String serverPublicKey;
@@ -181,6 +193,10 @@ class ClientConfig {
       'server_public_key': serverPublicKey,
     };
     _putStr(m, 'client_private_key', clientPrivateKey);
+    _putStr(m, 'transport', transport);
+    _putStr(m, 'reality_public_key', realityPublicKey);
+    _putStr(m, 'reality_short_id', realityShortId);
+    _putBool(m, 'allow_direct_udp', allowDirectUdp);
     _putBool(m, 'no_tls', noTls);
     _putBool(m, 'reality_enabled', realityEnabled);
     _putStr(m, 'reality_auth_key', realityAuthKey);
@@ -229,6 +245,10 @@ class ClientConfig {
   }
 
   ClientConfig copyWith({
+    String? transport,
+    String? realityPublicKey,
+    String? realityShortId,
+    bool? allowDirectUdp,
     int? protocolVersion,
     String? serverHost,
     String? serverPort,
@@ -280,6 +300,10 @@ class ClientConfig {
     String? label,
   }) {
     return ClientConfig(
+      transport: transport ?? this.transport,
+      realityPublicKey: realityPublicKey ?? this.realityPublicKey,
+      realityShortId: realityShortId ?? this.realityShortId,
+      allowDirectUdp: allowDirectUdp ?? this.allowDirectUdp,
       protocolVersion: protocolVersion ?? this.protocolVersion,
       serverHost: serverHost ?? this.serverHost,
       serverPort: serverPort ?? this.serverPort,
